@@ -30,11 +30,11 @@ PlexSage offers two ways to begin creating a playlist:
 
 The AI first analyzes your request and suggests appropriate genre and decade filters. Your prompt is saved and sent again later along with the filtered track list for final curation.
 
-<!-- ![Prompt Input Screenshot](docs/images/screenshot-prompt.png) -->
+![Prompt Input Screenshot](docs/images/screenshot-prompt.png)
 
 **Option B: Start from a song you love** — Search for a track in your library and PlexSage analyzes its musical dimensions: mood, era, instrumentation, genre influences, lyrical themes, and more. Select which dimensions to explore and discover similar music you might have forgotten you owned.
 
-<!-- ![Seed Track Screenshot](docs/images/screenshot-seed.png) -->
+![Seed Track Screenshot](docs/images/screenshot-seed.png)
 
 ### Step 2: Refine Your Filters
 
@@ -47,7 +47,7 @@ Before the AI sees anything, you control exactly what pool of tracks it can choo
 
 The filter screen shows exactly how many tracks match your selection in real-time.
 
-<!-- ![Filters Screenshot](docs/images/screenshot-filters.png) -->
+![Filters Screenshot](docs/images/screenshot-filters.png)
 
 ### Step 3: Control Cost & Variety
 
@@ -64,7 +64,7 @@ PlexSage shows estimated cost before you generate. Different LLMs have different
 
 The UI automatically adjusts available options based on your configured model.
 
-<!-- ![Cost Preview Screenshot](docs/images/screenshot-cost.png) -->
+![Filters Screenshot](docs/images/screenshot-filters-2.png)
 
 ### Step 4: Generate & Review
 
@@ -76,11 +76,13 @@ Hit generate and watch the progress indicators as PlexSage:
 
 The AI sees both what you asked for *and* what's available—so it makes informed choices from tracks you actually own. Review your playlist, remove any tracks you don't want, rename it, and see the actual token count and cost for the session.
 
-<!-- ![Results Screenshot](docs/images/screenshot-results.png) -->
+![Results Screenshot](docs/images/screenshot-results.png)
 
 ### Step 5: Save to Plex
 
 One click saves your playlist directly to Plex, ready to play in Plexamp or any Plex client.
+
+![Save Screenshot](docs/images/screenshot-save.png)
 
 ---
 
