@@ -1,14 +1,19 @@
 services:
   plexsage:
-    build: .
+    image: ghcr.io/ecwilsonaz/plexsage:latest
+    # To build locally instead, comment out 'image' and uncomment 'build':
+    # build: .
     container_name: plexsage
     ports:
       - "8765:8765"
     environment:
       - PLEX_URL=${PLEX_URL}
       - PLEX_TOKEN=${PLEX_TOKEN}
+      - PLEX_MUSIC_LIBRARY=${PLEX_MUSIC_LIBRARY:-Music}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-    volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    # Optional: mount config file for advanced settings
+    # volumes:
+    #   - ./config.yaml:/app/config.yaml:ro
     restart: unless-stopped

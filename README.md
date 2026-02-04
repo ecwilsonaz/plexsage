@@ -16,45 +16,86 @@ A self-hosted web application that generates Plex music playlists using LLMs wit
 
 ### Prerequisites
 
-- Docker and Docker Compose
+- Docker
 - A Plex server with a music library
 - [Plex authentication token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)
 - API key from Anthropic, OpenAI, or Google
 
-### Setup
+### Docker Run
 
-1. Clone the repository:
 ```bash
-git clone https://github.com/ecwilsonaz/plexsage.git
-cd plexsage
+docker run -d \
+  --name plexsage \
+  -p 8765:8765 \
+  -e PLEX_URL=http://your-plex-server:32400 \
+  -e PLEX_TOKEN=your-plex-token \
+  -e GEMINI_API_KEY=your-gemini-key \
+  --restart unless-stopped \
+  ghcr.io/ecwilsonaz/plexsage:latest
 ```
 
-2. Create your environment file:
+Then open http://localhost:8765
+
+### Docker Compose
+
+1. Create a directory and download the compose file:
 ```bash
-cp .env.example .env
+mkdir plexsage && cd plexsage
+curl -O https://raw.githubusercontent.com/ecwilsonaz/plexsage/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/ecwilsonaz/plexsage/main/.env.example
+mv .env.example .env
 ```
 
-3. Edit `.env` with your credentials:
+2. Edit `.env` with your credentials:
 ```bash
 PLEX_URL=http://your-plex-server:32400
 PLEX_TOKEN=your-plex-token
 
 # Choose ONE provider:
-ANTHROPIC_API_KEY=sk-ant-your-key-here
-# OPENAI_API_KEY=sk-your-key-here
-# GEMINI_API_KEY=your-gemini-key-here
+GEMINI_API_KEY=your-gemini-key
+# ANTHROPIC_API_KEY=sk-ant-your-key
+# OPENAI_API_KEY=sk-your-key
 ```
 
-4. Start the application:
+3. Start:
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-5. Open http://localhost:8765
+## NAS Deployment
+
+### Synology (Container Manager)
+
+1. SSH into your Synology or use Task Scheduler to run:
+```bash
+mkdir -p /volume1/docker/plexsage
+cd /volume1/docker/plexsage
+curl -O https://raw.githubusercontent.com/ecwilsonaz/plexsage/main/docker-compose.yml
+```
+
+2. In **Container Manager** → **Project** → **Create**:
+   - Set path to `/volume1/docker/plexsage`
+   - Add environment variables (PLEX_URL, PLEX_TOKEN, your LLM API key)
+
+3. Or use the GUI to create a container directly:
+   - Image: `ghcr.io/ecwilsonaz/plexsage:latest`
+   - Port: 8765 → 8765
+   - Environment: Add your credentials
+
+### Unraid
+
+Use Community Apps or add container manually:
+- Repository: `ghcr.io/ecwilsonaz/plexsage:latest`
+- Port mapping: 8765
+- Add environment variables for PLEX_URL, PLEX_TOKEN, and your LLM API key
+
+### Portainer
+
+**Stacks** → **Add Stack** → paste docker-compose.yml contents, add environment variables.
 
 ## LLM Providers
 
-PlexSage auto-detects your provider based on which API key is set. You can also explicitly set `LLM_PROVIDER` in your `.env`.
+PlexSage auto-detects your provider based on which API key is set.
 
 | Provider | Models | Max Tracks | Cost | Notes |
 |----------|--------|------------|------|-------|
@@ -86,7 +127,7 @@ This balances quality and cost. Set `smart_generation: true` in config to use th
 
 ### Optional: config.yaml
 
-For additional customization, create a `config.yaml`:
+For additional customization, mount a config file:
 
 ```yaml
 plex:
@@ -120,6 +161,9 @@ This ensures every track exists in your library while keeping costs manageable f
 ### Local Setup
 
 ```bash
+git clone https://github.com/ecwilsonaz/plexsage.git
+cd plexsage
+
 python -m venv venv
 source venv/bin/activate
 
