@@ -1,16 +1,81 @@
 # PlexSage
 
-A self-hosted web application that generates Plex music playlists using LLMs with library awareness. PlexSage uses a filter-first approach to ensure 100% of suggested tracks are playable from your library.
+A self-hosted web application that generates Plex music playlists using LLMs with **actual library awareness**. Unlike other AI playlist tools, PlexSage knows exactly what's in your music library and only suggests tracks you can actually play.
+
+<!-- ![PlexSage Screenshot](docs/images/screenshot-main.png) -->
+
+## Why PlexSage?
+
+**The problem with existing AI playlist tools**: Services like Spotify's AI DJ or third-party tools like SonicSage generate playlists based on what *might* sound good together—but they have no idea what's actually in your library. You end up with playlists full of tracks you don't own, or worse, a frustrating mix of playable and unplayable suggestions.
+
+**PlexSage is different**. It uses a filter-first architecture that:
+
+1. **Starts with your library** — Only tracks you actually own are ever considered
+2. **Filters before generating** — Narrow down by genre, decade, and rating before the AI even sees the list
+3. **Guarantees 100% playable results** — Every single track in every playlist exists in your Plex library
+4. **Scales to large libraries** — Handles 50,000+ track libraries through smart sampling and context management
+
+If you've ever been frustrated by AI recommendations for music you don't have, PlexSage solves that problem.
 
 ## Features
 
-- **Prompt-Based Playlists**: Describe what you want ("melancholy 90s alternative for a rainy day") and get a curated playlist
-- **Seed Track Discovery**: Start from a song you like and explore similar music across selectable dimensions (mood, era, instrumentation, etc.)
-- **Library-First Guarantee**: Every track in generated playlists exists in your Plex library
-- **Smart Filtering**: Refine by genre, decade, minimum rating, and more before generation
-- **Cost Transparency**: See actual token usage and costs for each request
-- **Context-Aware Limits**: Automatically adjusts track limits based on your LLM's context window
-- **Multi-Provider Support**: Works with Anthropic Claude, OpenAI GPT, or Google Gemini
+### Prompt-Based Playlist Generation
+
+Describe the mood, era, or vibe you're looking for in natural language. PlexSage understands requests like:
+- "Melancholy 90s alternative for a rainy day"
+- "Upbeat instrumental jazz for a dinner party"
+- "Late night electronic music, nothing too aggressive"
+
+The AI analyzes your prompt and suggests appropriate genre and decade filters from your library, then curates a playlist that matches your request.
+
+<!-- ![Prompt Input Screenshot](docs/images/screenshot-prompt.png) -->
+
+### Seed Track Discovery
+
+Start from a song you love and explore in different directions. Select a track from your library and PlexSage identifies its musical dimensions—mood, era, instrumentation, genre influences, lyrical themes, and more. Choose which dimensions to explore and discover similar music you might have forgotten you owned.
+
+<!-- ![Seed Track Screenshot](docs/images/screenshot-seed.png) -->
+
+### Smart Library Filtering
+
+Before the AI generates anything, you control exactly what pool of tracks it can choose from:
+
+- **Genres** — Select one or many from your library's actual genres
+- **Decades** — Filter by era (60s, 70s, 80s, etc.)
+- **Minimum Rating** — Only include tracks you've rated 3+ stars, 4+ stars, etc.
+- **Exclude Live Versions** — Automatically filter out concert recordings
+- **Track Limits** — Control how many tracks are sent to the AI (cost vs. variety tradeoff)
+
+See exactly how many tracks match your filters and the estimated cost before generating.
+
+<!-- ![Filters Screenshot](docs/images/screenshot-filters.png) -->
+
+### Real Cost Transparency
+
+PlexSage shows you exactly what you're spending:
+- **Before generation**: Estimated token count and cost based on your filters
+- **After generation**: Actual tokens used and total cost for the session
+- **Model awareness**: Costs displayed per your configured LLM provider
+
+No surprises. You always know what a playlist costs before you create it.
+
+### Context-Aware Limits
+
+Different LLMs have different context windows. PlexSage automatically adjusts:
+- Gemini (1M context): Can process ~18,000 tracks at once
+- Claude (200K context): Handles ~3,500 tracks
+- GPT-4 (128K context): Works with ~2,300 tracks
+
+The UI adapts to show appropriate limit options for your configured model. Large libraries are randomly sampled to fit within limits while maintaining variety.
+
+### Multi-Provider Support
+
+Bring your own API key from any supported provider:
+- **Google Gemini** — Lowest cost, largest context window
+- **Anthropic Claude** — Nuanced understanding, quality recommendations
+- **OpenAI GPT** — Reliable, solid all-around performance
+
+PlexSage auto-detects your provider based on which API key you configure.
 
 ## Quick Start
 
