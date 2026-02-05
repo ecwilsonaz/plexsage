@@ -1,4 +1,4 @@
-"""FastAPI application for PlexSage."""
+"""FastAPI application for MediaSage."""
 
 import asyncio
 import os
@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="PlexSage",
+    title="MediaSage",
     description="Plex playlist generator powered by LLMs",
     version="0.1.0",
     lifespan=lifespan,
@@ -587,4 +587,4 @@ async def serve_index():
     index_path = frontend_path / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
-    return {"message": "PlexSage API is running. Frontend not found."}
+    return {"message": "MediaSage API is running. Frontend not found."}

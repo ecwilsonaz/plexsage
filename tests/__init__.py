@@ -1,1 +1,1 @@
-"""PlexSage test suite."""
+"""MediaSage test suite."""

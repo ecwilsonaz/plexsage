@@ -1,4 +1,4 @@
-"""Pytest fixtures for PlexSage tests."""
+"""Pytest fixtures for MediaSage tests."""
 
 import pytest
 from unittest.mock import MagicMock

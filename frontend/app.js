@@ -1,5 +1,5 @@
 /**
- * PlexSage - Frontend Application
+ * MediaSage - Frontend Application
  */
 
 // =============================================================================
@@ -225,10 +225,12 @@ const progressQueue = {
     },
 
     finish() {
+        console.log('[MediaSage] progressQueue.finish() called, hasCallback:', !!this.onComplete, 'hasData:', !!this.completeData);
         const callback = this.onComplete;
         const data = this.completeData;
         this.reset();
         if (callback && data) {
+            console.log('[MediaSage] Calling onComplete callback with', data.tracks?.length || 0, 'tracks');
             callback(data);
         }
     },
@@ -275,11 +277,11 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
         }
     };
 
-    // Timeout handling - 10 minutes for local providers, 60 seconds for cloud
+    // Timeout handling - 10 minutes for local providers, 5 minutes for cloud
     let timeoutId = null;
     let abortController = new AbortController();
     const isLocalProvider = state.config?.is_local_provider ?? false;
-    const TIMEOUT_MS = isLocalProvider ? 600000 : 60000;  // 10 min vs 60s
+    const TIMEOUT_MS = isLocalProvider ? 600000 : 300000;  // 10 min vs 5 min
 
     function resetTimeout() {
         if (timeoutId) clearTimeout(timeoutId);
@@ -339,6 +341,7 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
                             if (currentEvent === 'progress') {
                                 progressQueue.enqueue(data.step, data.message);
                             } else if (currentEvent === 'complete') {
+                                console.log('[MediaSage] Complete event received:', JSON.stringify(data).substring(0, 200));
                                 clearTimeoutHandler();
                                 // Wait for queue to drain before completing
                                 progressQueue.markComplete(data, onComplete);

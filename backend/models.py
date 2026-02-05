@@ -1,4 +1,4 @@
-"""Pydantic models for PlexSage API contracts and internal data structures."""
+"""Pydantic models for MediaSage API contracts and internal data structures."""
 
 from typing import Literal
 

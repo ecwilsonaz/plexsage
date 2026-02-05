@@ -1,14 +1,14 @@
-# PlexSage
+# MediaSage for Plex
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Docker](https://img.shields.io/badge/docker-ghcr.io%2Fecwilsonaz%2Fplexsage-blue)](https://ghcr.io/ecwilsonaz/plexsage)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io%2Fecwilsonaz%2Fmediasage-blue)](https://ghcr.io/ecwilsonaz/mediasage)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 **AI-powered playlist generation for Plex—using only tracks you actually own.**
 
-PlexSage is a self-hosted web app that creates music playlists by combining LLM intelligence with your Plex library. Every track it suggests is guaranteed playable because it only considers music you have.
+MediaSage is a self-hosted web app that creates music playlists by combining LLM intelligence with your Plex library. Every track it suggests is guaranteed playable because it only considers music you have.
 
-![PlexSage Screenshot](docs/images/screenshot-results.png)
+![MediaSage Screenshot](docs/images/screenshot-results.png)
 
 ## Demo
 
@@ -28,13 +28,13 @@ Start from a song you love and explore its musical dimensions:
 
 ```bash
 docker run -d \
-  --name plexsage \
+  --name mediasage \
   -p 5765:5765 \
   -e PLEX_URL=http://your-plex-server:32400 \
   -e PLEX_TOKEN=your-plex-token \
   -e GEMINI_API_KEY=your-gemini-key \
   --restart unless-stopped \
-  ghcr.io/ecwilsonaz/plexsage:latest
+  ghcr.io/ecwilsonaz/mediasage:latest
 ```
 
 Open **http://localhost:5765** and start creating playlists.
@@ -46,7 +46,7 @@ Open **http://localhost:5765** and start creating playlists.
 ## Contents
 
 - [Demo](#demo)
-- [Why PlexSage?](#why-plexsage)
+- [Why MediaSage?](#why-mediasage)
 - [Features](#features)
 - [Installation](#installation)
 - [Configuration](#configuration)
@@ -56,7 +56,7 @@ Open **http://localhost:5765** and start creating playlists.
 
 ---
 
-## Why PlexSage?
+## Why MediaSage?
 
 **Plex users with personal music libraries have few good options for AI playlists.**
 
@@ -64,9 +64,9 @@ Plexamp's built-in Sonic Sage used ChatGPT to generate playlists, but it was des
 
 When [Tidal integration ended in October 2024](https://forums.plex.tv/t/tidal-integration-with-plex-ending-october-28-2024/885728), Sonic Sage lost its foundation. Generic tools like ChatGPT have the same problem: they recommend from an infinite catalog with no awareness of what you actually own.
 
-**PlexSage inverts the approach:**
+**MediaSage inverts the approach:**
 
-| Filter-Last (Sonic Sage, ChatGPT) | Filter-First (PlexSage) |
+| Filter-Last (Sonic Sage, ChatGPT) | Filter-First (MediaSage) |
 |-----------------------------------|-------------------------|
 | AI recommends from infinite catalog | AI only sees your library |
 | Hide missing tracks after | No missing tracks possible |
@@ -121,9 +121,9 @@ Bring your own API key—or run locally:
 | **Ollama** ⚗️ | Varies by model | Privacy, no API costs |
 | **Custom** ⚗️ | Configurable | Self-hosted, OpenAI-compatible APIs |
 
-⚗️ *Local LLM support is experimental. [Report issues](https://github.com/ecwilsonaz/plexsage/issues).*
+⚗️ *Local LLM support is experimental. [Report issues](https://github.com/ecwilsonaz/mediasage/issues).*
 
-PlexSage auto-detects your provider based on which key you configure.
+MediaSage auto-detects your provider based on which key you configure.
 
 ### Review and Save
 
@@ -140,9 +140,9 @@ PlexSage auto-detects your provider based on which key you configure.
 ### Docker Compose (Recommended)
 
 ```bash
-mkdir plexsage && cd plexsage
-curl -O https://raw.githubusercontent.com/ecwilsonaz/plexsage/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/ecwilsonaz/plexsage/main/.env.example
+mkdir mediasage && cd mediasage
+curl -O https://raw.githubusercontent.com/ecwilsonaz/mediasage/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/ecwilsonaz/mediasage/main/.env.example
 mv .env.example .env
 ```
 
@@ -170,7 +170,7 @@ docker compose up -d
 <summary><strong>Synology (Container Manager)</strong></summary>
 
 **GUI:**
-1. **Container Manager** → **Registry** → Search `ghcr.io/ecwilsonaz/plexsage`
+1. **Container Manager** → **Registry** → Search `ghcr.io/ecwilsonaz/mediasage`
 2. Download `latest` tag
 3. **Container** → **Create**
 4. Port: 5765 → 5765
@@ -178,12 +178,12 @@ docker compose up -d
 
 **Docker Compose:**
 ```bash
-mkdir -p /volume1/docker/plexsage && cd /volume1/docker/plexsage
-curl -O https://raw.githubusercontent.com/ecwilsonaz/plexsage/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/ecwilsonaz/plexsage/main/.env.example
+mkdir -p /volume1/docker/mediasage && cd /volume1/docker/mediasage
+curl -O https://raw.githubusercontent.com/ecwilsonaz/mediasage/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/ecwilsonaz/mediasage/main/.env.example
 mv .env.example .env && nano .env
 ```
-Then in **Container Manager** → **Project** → **Create**, point to `/volume1/docker/plexsage`.
+Then in **Container Manager** → **Project** → **Create**, point to `/volume1/docker/mediasage`.
 
 </details>
 
@@ -191,7 +191,7 @@ Then in **Container Manager** → **Project** → **Create**, point to `/volume1
 <summary><strong>Unraid</strong></summary>
 
 1. **Docker** → **Add Container**
-2. Repository: `ghcr.io/ecwilsonaz/plexsage:latest`
+2. Repository: `ghcr.io/ecwilsonaz/mediasage:latest`
 3. Port: 5765 → 5765
 4. Add variables: `PLEX_URL`, `PLEX_TOKEN`, `GEMINI_API_KEY`
 
@@ -201,7 +201,7 @@ Then in **Container Manager** → **Project** → **Create**, point to `/volume1
 <summary><strong>TrueNAS SCALE</strong></summary>
 
 1. **Apps** → **Discover Apps** → **Custom App**
-2. Image: `ghcr.io/ecwilsonaz/plexsage`, Tag: `latest`
+2. Image: `ghcr.io/ecwilsonaz/mediasage`, Tag: `latest`
 3. Port: 5765
 4. Add environment variables
 
@@ -214,8 +214,8 @@ Then in **Container Manager** → **Project** → **Create**, point to `/volume1
 
 ```yaml
 services:
-  plexsage:
-    image: ghcr.io/ecwilsonaz/plexsage:latest
+  mediasage:
+    image: ghcr.io/ecwilsonaz/mediasage:latest
     ports:
       - "5765:5765"
     environment:
@@ -250,7 +250,7 @@ services:
 
 ### Web UI Configuration
 
-You can also configure PlexSage through the **Settings** page in the web UI. Settings entered there are saved to `config.user.yaml` and persist across restarts. Environment variables always take priority over UI-saved settings.
+You can also configure MediaSage through the **Settings** page in the web UI. Settings entered there are saved to `config.user.yaml` and persist across restarts. Environment variables always take priority over UI-saved settings.
 
 ### Advanced: config.yaml
 
@@ -272,7 +272,7 @@ defaults:
 
 ### Model Selection
 
-PlexSage uses a two-model strategy by default:
+MediaSage uses a two-model strategy by default:
 
 | Role | Purpose | Models Used |
 |------|---------|-------------|
@@ -283,7 +283,7 @@ This balances quality with cost. Enable `smart_generation: true` to use the anal
 
 ### Local LLM Setup (Experimental)
 
-Run PlexSage with local models for privacy and zero API costs.
+Run MediaSage with local models for privacy and zero API costs.
 
 <details>
 <summary><strong>Ollama</strong></summary>
@@ -293,7 +293,7 @@ Run PlexSage with local models for privacy and zero API costs.
    ollama pull llama3:8b
    ```
 
-2. Configure PlexSage via environment or Settings UI:
+2. Configure MediaSage via environment or Settings UI:
    ```bash
    LLM_PROVIDER=ollama
    OLLAMA_URL=http://localhost:11434
@@ -326,7 +326,7 @@ For LM Studio, text-generation-webui, vLLM, or any OpenAI-compatible server:
 
 ## How It Works
 
-PlexSage uses a **filter-first architecture** designed for large libraries (50,000+ tracks):
+MediaSage uses a **filter-first architecture** designed for large libraries (50,000+ tracks):
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -364,8 +364,8 @@ This ensures every track exists in your library while keeping API costs manageab
 ### Local Setup
 
 ```bash
-git clone https://github.com/ecwilsonaz/plexsage.git
-cd plexsage
+git clone https://github.com/ecwilsonaz/mediasage.git
+cd mediasage
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt

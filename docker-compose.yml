@@ -1,11 +1,11 @@
 services:
-  plexsage:
-    image: ecwilson/plexsage:latest
+  mediasage:
+    image: ecwilson/mediasage:latest
     # Alternative registries:
-    # image: ghcr.io/ecwilsonaz/plexsage:latest
+    # image: ghcr.io/ecwilsonaz/mediasage:latest
     # To build locally instead, comment out 'image' and uncomment 'build':
     # build: .
-    container_name: plexsage
+    container_name: mediasage
     ports:
       - "5765:5765"
     environment:

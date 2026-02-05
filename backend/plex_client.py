@@ -296,6 +296,7 @@ class PlexClient:
         decades: list[str] | None = None,
         exclude_live: bool = True,
         min_rating: int = 0,
+        limit: int = 0,
     ) -> list[Track]:
         """Get tracks matching filter criteria.
 
@@ -304,6 +305,8 @@ class PlexClient:
             decades: List of decades (e.g., ["1990s", "2000s"])
             exclude_live: Whether to exclude live recordings
             min_rating: Minimum user rating (0-10, 0 = no filter)
+            limit: Max tracks to return (0 = no limit). When set, uses random
+                   server-side sampling for efficiency with large libraries.
 
         Returns:
             List of matching Track objects
@@ -314,12 +317,26 @@ class PlexClient:
         try:
             filters = self._build_filters(genres, decades, min_rating)
 
-            # Fetch tracks with server-side filters
-            plex_tracks = self._library.search(libtype="track", **filters)
+            # When limit is set, use server-side random sampling for efficiency
+            # Fetch extra to account for live version filtering
+            if limit > 0:
+                fetch_count = int(limit * 1.3) if exclude_live else limit
+                plex_tracks = self._library.search(
+                    libtype="track",
+                    sort="random",
+                    limit=fetch_count,
+                    **filters,
+                )
+            else:
+                plex_tracks = self._library.search(libtype="track", **filters)
 
             # Post-filter for live versions (can't be done server-side)
             if exclude_live:
                 plex_tracks = [t for t in plex_tracks if not is_live_version(t)]
+
+            # Apply limit after live filtering
+            if limit > 0:
+                plex_tracks = plex_tracks[:limit]
 
             return [self._convert_track(t) for t in plex_tracks]
         except Exception as e:
