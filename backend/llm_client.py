@@ -1,10 +1,14 @@
 """LLM client abstraction for Anthropic, OpenAI, and Google Gemini providers."""
 
 import json
+import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
 import anthropic
+
+logger = logging.getLogger(__name__)
 import openai
 import google.generativeai as genai
 
@@ -88,12 +92,14 @@ class LLMClient:
         self, prompt: str, system: str, model: str
     ) -> LLMResponse:
         """Make a completion request to Anthropic."""
+        logger.info("Calling Anthropic API with %d char prompt", len(prompt))
         response = self._client.messages.create(
             model=model,
             max_tokens=4096,
             system=system,
             messages=[{"role": "user", "content": prompt}],
         )
+        logger.debug("Anthropic response received")
 
         content = response.content[0].text
         return LLMResponse(
@@ -107,6 +113,7 @@ class LLMClient:
         self, prompt: str, system: str, model: str
     ) -> LLMResponse:
         """Make a completion request to OpenAI."""
+        logger.info("Calling OpenAI API with %d char prompt", len(prompt))
         response = self._client.chat.completions.create(
             model=model,
             max_tokens=4096,
@@ -115,6 +122,7 @@ class LLMClient:
                 {"role": "user", "content": prompt},
             ],
         )
+        logger.debug("OpenAI response received")
 
         content = response.choices[0].message.content
         return LLMResponse(
@@ -128,15 +136,15 @@ class LLMClient:
         self, prompt: str, system: str, model: str
     ) -> LLMResponse:
         """Make a completion request to Google Gemini."""
-        print(f"[LLM] Creating Gemini model: {model}")
+        logger.debug("Creating Gemini model: %s", model)
         gemini_model = self._client.GenerativeModel(
             model_name=model,
             system_instruction=system,
         )
 
-        print(f"[LLM] Calling Gemini API with {len(prompt)} char prompt...")
+        logger.info("Calling Gemini API with %d char prompt", len(prompt))
         response = gemini_model.generate_content(prompt)
-        print(f"[LLM] Gemini response received")
+        logger.debug("Gemini response received")
 
         # Extract token counts from usage metadata
         usage = response.usage_metadata
@@ -204,16 +212,10 @@ class LLMClient:
         content = response.content.strip()
 
         # Try to extract JSON from markdown code blocks
-        if "```json" in content:
-            start = content.find("```json") + 7
-            end = content.find("```", start)
-            if end > start:
-                content = content[start:end].strip()
-        elif "```" in content:
-            start = content.find("```") + 3
-            end = content.find("```", start)
-            if end > start:
-                content = content[start:end].strip()
+        # Handles ```json, ```JSON, ``` with any language specifier, or plain ```
+        match = re.search(r"```(?:\w+)?\s*\n?(.*?)```", content, re.DOTALL)
+        if match:
+            content = match.group(1).strip()
 
         try:
             return json.loads(content)

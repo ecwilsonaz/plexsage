@@ -53,6 +53,16 @@ const state = {
 // API Calls
 // =============================================================================
 
+function escapeHtml(str) {
+    if (!str) return '';
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 async function apiCall(endpoint, options = {}) {
     const response = await fetch(`/api${endpoint}`, {
         headers: {
@@ -152,7 +162,7 @@ function updateMode() {
         inputSeed.classList.toggle('active', state.mode === 'seed');
     }
 
-    // Update step progress - hide dimensions step for prompt mode
+    // Update step progress - hide dimensions step for prompt mode and renumber
     const dimensionsStep = document.querySelector('.step[data-step="dimensions"]');
     const dimensionsConnector = dimensionsStep?.previousElementSibling;
     if (state.mode === 'prompt') {
@@ -162,6 +172,14 @@ function updateMode() {
         dimensionsStep?.classList.remove('hidden');
         dimensionsConnector?.classList.remove('hidden');
     }
+
+    // Renumber visible steps
+    let stepNumber = 1;
+    document.querySelectorAll('.step').forEach(step => {
+        if (!step.classList.contains('hidden')) {
+            step.querySelector('.step-number').textContent = stepNumber++;
+        }
+    });
 }
 
 function updateStep() {
@@ -202,8 +220,8 @@ function updateFilters() {
     const genreContainer = document.getElementById('genre-chips');
     genreContainer.innerHTML = state.availableGenres.map(genre => `
         <button class="chip ${state.selectedGenres.includes(genre.name) ? 'selected' : ''}"
-                data-genre="${genre.name}">
-            ${genre.name}
+                data-genre="${escapeHtml(genre.name)}">
+            ${escapeHtml(genre.name)}
             ${genre.count != null ? `<span class="chip-count">${genre.count}</span>` : ''}
         </button>
     `).join('');
@@ -212,8 +230,8 @@ function updateFilters() {
     const decadeContainer = document.getElementById('decade-chips');
     decadeContainer.innerHTML = state.availableDecades.map(decade => `
         <button class="chip ${state.selectedDecades.includes(decade.name) ? 'selected' : ''}"
-                data-decade="${decade.name}">
-            ${decade.name}
+                data-decade="${escapeHtml(decade.name)}">
+            ${escapeHtml(decade.name)}
             ${decade.count != null ? `<span class="chip-count">${decade.count}</span>` : ''}
         </button>
     `).join('');
@@ -328,15 +346,15 @@ async function updateFilterPreview() {
 function updatePlaylist() {
     const container = document.getElementById('playlist-tracks');
     container.innerHTML = state.playlist.map((track, index) => `
-        <div class="playlist-track" data-rating-key="${track.rating_key}">
+        <div class="playlist-track" data-rating-key="${escapeHtml(track.rating_key)}">
             <span class="track-number">${index + 1}</span>
-            <img class="track-art" src="${track.art_url || '/static/placeholder.png'}"
-                 alt="${track.album}" onerror="this.style.display='none'">
+            <img class="track-art" src="${escapeHtml(track.art_url || '/static/placeholder.png')}"
+                 alt="${escapeHtml(track.album)}" onerror="this.style.display='none'">
             <div class="track-info">
-                <div class="track-title">${track.title}</div>
-                <div class="track-artist">${track.artist} - ${track.album}</div>
+                <div class="track-title">${escapeHtml(track.title)}</div>
+                <div class="track-artist">${escapeHtml(track.artist)} - ${escapeHtml(track.album)}</div>
             </div>
-            <button class="track-remove" data-rating-key="${track.rating_key}">&times;</button>
+            <button class="track-remove" data-rating-key="${escapeHtml(track.rating_key)}">&times;</button>
         </div>
     `).join('');
 
@@ -662,12 +680,12 @@ function renderSearchResults(tracks) {
     }
 
     container.innerHTML = tracks.map(track => `
-        <div class="search-result-item" data-rating-key="${track.rating_key}">
-            <img class="track-art" src="${track.art_url || ''}"
-                 alt="${track.album}" onerror="this.style.display='none'">
+        <div class="search-result-item" data-rating-key="${escapeHtml(track.rating_key)}">
+            <img class="track-art" src="${escapeHtml(track.art_url || '')}"
+                 alt="${escapeHtml(track.album)}" onerror="this.style.display='none'">
             <div class="track-info">
-                <div class="track-title">${track.title}</div>
-                <div class="track-artist">${track.artist} - ${track.album}</div>
+                <div class="track-title">${escapeHtml(track.title)}</div>
+                <div class="track-artist">${escapeHtml(track.artist)} - ${escapeHtml(track.album)}</div>
             </div>
         </div>
     `).join('');
@@ -721,11 +739,11 @@ function renderSeedTrack() {
     const track = state.seedTrack;
 
     container.innerHTML = `
-        <img class="track-art" src="${track.art_url || ''}"
-             alt="${track.album}" onerror="this.style.display='none'">
+        <img class="track-art" src="${escapeHtml(track.art_url || '')}"
+             alt="${escapeHtml(track.album)}" onerror="this.style.display='none'">
         <div class="track-info">
-            <div class="track-title">${track.title}</div>
-            <div class="track-artist">${track.artist} - ${track.album}</div>
+            <div class="track-title">${escapeHtml(track.title)}</div>
+            <div class="track-artist">${escapeHtml(track.artist)} - ${escapeHtml(track.album)}</div>
         </div>
     `;
 }
@@ -735,9 +753,9 @@ function renderDimensions() {
 
     container.innerHTML = state.dimensions.map(dim => `
         <div class="dimension-card ${state.selectedDimensions.includes(dim.id) ? 'selected' : ''}"
-             data-dimension-id="${dim.id}">
-            <div class="dimension-label">${dim.label}</div>
-            <div class="dimension-description">${dim.description}</div>
+             data-dimension-id="${escapeHtml(dim.id)}">
+            <div class="dimension-label">${escapeHtml(dim.label)}</div>
+            <div class="dimension-description">${escapeHtml(dim.description)}</div>
         </div>
     `).join('');
 
@@ -870,12 +888,26 @@ async function handleSavePlaylist() {
         const response = await savePlaylist(name, ratingKeys);
 
         if (response.success) {
-            showSuccess('Playlist saved to Plex!');
-            // Reset state
-            state.playlist = [];
+            if (response.tracks_skipped > 0) {
+                showSuccess(`Playlist saved to Plex! (${response.tracks_added} tracks added, ${response.tracks_skipped} skipped)`);
+            } else {
+                showSuccess('Playlist saved to Plex!');
+            }
+            // Reset state for next playlist
             state.step = 'input';
             state.prompt = '';
             state.seedTrack = null;
+            state.dimensions = [];
+            state.selectedDimensions = [];
+            state.additionalNotes = '';
+            state.selectedGenres = [];
+            state.selectedDecades = [];
+            state.playlist = [];
+            state.playlistName = '';
+            state.tokenCount = 0;
+            state.estimatedCost = 0;
+            state.sessionTokens = 0;
+            state.sessionCost = 0;
             document.getElementById('prompt-input').value = '';
             updateStep();
         } else {

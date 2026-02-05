@@ -1,15 +1,24 @@
 """Plex server client for library queries and playlist management."""
 
-from typing import Any
+import logging
 import re
+from typing import Any
 
 from plexapi.server import PlexServer
+
+logger = logging.getLogger(__name__)
 from plexapi.exceptions import NotFound, Unauthorized
 from rapidfuzz import fuzz
 from requests.exceptions import ConnectionError, Timeout
 from unidecode import unidecode
 
 from backend.models import Track
+
+
+class PlexQueryError(Exception):
+    """Raised when a Plex library query fails."""
+
+    pass
 
 
 # Fuzzy matching threshold (0-100)
@@ -36,34 +45,6 @@ def normalize_artist(name: str) -> list[str]:
     elif " & " in name:
         variations.append(name.replace(" & ", " and "))
     return variations
-
-
-def match_track(llm_artist: str, llm_title: str, library_track: Any) -> bool:
-    """Check if LLM suggestion matches a library track.
-
-    Args:
-        llm_artist: Artist name from LLM
-        llm_title: Track title from LLM
-        library_track: Plex track object
-
-    Returns:
-        True if the track matches within fuzzy threshold
-    """
-    simplified_llm_title = simplify_string(llm_title)
-    simplified_lib_title = simplify_string(library_track.title)
-
-    if fuzz.ratio(simplified_llm_title, simplified_lib_title) < FUZZ_THRESHOLD:
-        return False
-
-    # Check artist variations
-    lib_artist = library_track.artist().title if callable(getattr(library_track, 'artist', None)) else library_track.grandparentTitle
-    for artist_variant in normalize_artist(llm_artist):
-        simplified_artist = simplify_string(artist_variant)
-        simplified_lib_artist = simplify_string(lib_artist)
-        if fuzz.ratio(simplified_artist, simplified_lib_artist) >= FUZZ_THRESHOLD:
-            return True
-
-    return False
 
 
 def is_live_version(track: Any) -> bool:
@@ -119,7 +100,7 @@ class PlexClient:
             return
 
         try:
-            self._server = PlexServer(self.url, self.token)
+            self._server = PlexServer(self.url, self.token, timeout=30)
             self._library = self._server.library.section(self.music_library_name)
             self._error = None
         except Unauthorized:
@@ -134,7 +115,7 @@ class PlexClient:
             self._server = None
             self._library = None
         except Timeout:
-            self._error = f"Connection to Plex server timed out"
+            self._error = "Connection to Plex server timed out"
             self._server = None
             self._library = None
         except Exception as e:
@@ -266,8 +247,9 @@ class PlexClient:
                 plex_tracks = [t for t in plex_tracks if not is_live_version(t)]
 
             return [self._convert_track(t) for t in plex_tracks]
-        except Exception:
-            return []
+        except Exception as e:
+            logger.exception("Failed to query Plex library with filters: %s", filters)
+            raise PlexQueryError(f"Failed to query Plex library: {e}") from e
 
     def get_filtered_track_count(
         self,
@@ -388,6 +370,24 @@ class PlexClient:
         except Exception:
             return None
 
+    def get_thumb_path(self, rating_key: str) -> str | None:
+        """Get the raw Plex thumb path for a track.
+
+        Args:
+            rating_key: Plex rating key
+
+        Returns:
+            Thumb path (e.g., '/library/metadata/123/thumb/456') or None
+        """
+        if not self._server:
+            return None
+
+        try:
+            item = self._server.fetchItem(int(rating_key))
+            return item.thumb if hasattr(item, "thumb") else None
+        except Exception:
+            return None
+
     def create_playlist(self, name: str, rating_keys: list[str]) -> dict[str, Any]:
         """Create a playlist in Plex.
 
@@ -404,20 +404,36 @@ class PlexClient:
         try:
             # Fetch track items
             items = []
+            skipped_keys = []
             for key in rating_keys:
                 try:
                     item = self._server.fetchItem(int(key))
                     items.append(item)
-                except Exception:
-                    pass  # Skip invalid keys
+                except Exception as e:
+                    logger.warning("Failed to fetch track %s for playlist: %s", key, e)
+                    skipped_keys.append(key)
+
+            if skipped_keys:
+                logger.info(
+                    "Playlist '%s': skipped %d of %d tracks",
+                    name,
+                    len(skipped_keys),
+                    len(rating_keys),
+                )
 
             if not items:
                 return {"success": False, "error": "No valid tracks found"}
 
             # Create playlist
             playlist = self._server.createPlaylist(name, items=items)
-            return {"success": True, "playlist_id": str(playlist.ratingKey)}
+            return {
+                "success": True,
+                "playlist_id": str(playlist.ratingKey),
+                "tracks_added": len(items),
+                "tracks_skipped": len(skipped_keys),
+            }
         except Exception as e:
+            logger.exception("Failed to create playlist '%s'", name)
             return {"success": False, "error": str(e)}
 
     def _convert_track(self, plex_track: Any) -> Track:

@@ -14,9 +14,9 @@
         <!-- Header -->
         <header class="header">
             <h1 class="logo">PlexSage</h1>
-            <nav class="nav">
-                <button class="nav-btn active" data-view="create">Create</button>
-                <button class="nav-btn" data-view="settings">Settings</button>
+            <nav class="nav" role="navigation" aria-label="Main navigation">
+                <button class="nav-btn active" data-view="create" aria-selected="true">Create</button>
+                <button class="nav-btn" data-view="settings" aria-selected="false">Settings</button>
             </nav>
         </header>
 
@@ -25,34 +25,34 @@
             <!-- Create View -->
             <div id="create-view" class="view active">
                 <!-- Mode Selection -->
-                <div class="mode-tabs">
-                    <button class="mode-tab active" data-mode="prompt">
-                        <span class="mode-icon">💭</span>
+                <div class="mode-tabs" role="tablist" aria-label="Playlist creation mode">
+                    <button class="mode-tab active" data-mode="prompt" role="tab" aria-selected="true">
+                        <span class="mode-icon" aria-hidden="true">💭</span>
                         <span class="mode-label">Prompt</span>
                     </button>
-                    <button class="mode-tab" data-mode="seed">
-                        <span class="mode-icon">🎵</span>
+                    <button class="mode-tab" data-mode="seed" role="tab" aria-selected="false">
+                        <span class="mode-icon" aria-hidden="true">🎵</span>
                         <span class="mode-label">Seed Track</span>
                     </button>
                 </div>
 
                 <!-- Step Progress -->
-                <div class="step-progress">
-                    <div class="step active" data-step="input">
+                <div class="step-progress" role="navigation" aria-label="Playlist creation steps">
+                    <div class="step active" data-step="input" aria-current="step">
                         <span class="step-number">1</span>
                         <span class="step-label">Input</span>
                     </div>
-                    <div class="step-connector"></div>
+                    <div class="step-connector" aria-hidden="true"></div>
                     <div class="step" data-step="dimensions">
                         <span class="step-number">2</span>
                         <span class="step-label">Dimensions</span>
                     </div>
-                    <div class="step-connector"></div>
+                    <div class="step-connector" aria-hidden="true"></div>
                     <div class="step" data-step="filters">
                         <span class="step-number">3</span>
                         <span class="step-label">Filters</span>
                     </div>
-                    <div class="step-connector"></div>
+                    <div class="step-connector" aria-hidden="true"></div>
                     <div class="step" data-step="results">
                         <span class="step-number">4</span>
                         <span class="step-label">Results</span>
@@ -70,6 +70,7 @@
                             class="prompt-textarea"
                             placeholder="e.g., melancholy 90s alternative for a rainy day..."
                             rows="4"
+                            aria-label="Playlist description"
                         ></textarea>
                         <button id="analyze-prompt-btn" class="btn btn-primary">
                             Analyze
@@ -86,10 +87,11 @@
                                 id="track-search-input"
                                 class="search-input"
                                 placeholder="Search by title or artist..."
+                                aria-label="Search for tracks"
                             >
                             <button id="search-tracks-btn" class="btn btn-secondary">Search</button>
                         </div>
-                        <div id="search-results" class="search-results"></div>
+                        <div id="search-results" class="search-results" role="listbox" aria-label="Search results"></div>
                     </div>
 
                     <!-- Dimensions Step (Seed Mode Only) -->
@@ -97,7 +99,7 @@
                         <h2>Choose dimensions to explore</h2>
                         <p class="step-description">Select what aspects of this track you want more of.</p>
                         <div id="selected-track" class="selected-track"></div>
-                        <div id="dimensions-list" class="dimensions-list"></div>
+                        <div id="dimensions-list" class="dimensions-list" role="group" aria-label="Available dimensions"></div>
                         <div class="additional-notes">
                             <label for="additional-notes-input">Additional notes (optional)</label>
                             <textarea
@@ -124,32 +126,32 @@
 
                         <div class="filter-section">
                             <h3>Genres</h3>
-                            <div id="genre-chips" class="chip-container"></div>
+                            <div id="genre-chips" class="chip-container" role="group" aria-label="Genre filters"></div>
                         </div>
 
                         <div class="filter-section">
                             <h3>Decades</h3>
-                            <div id="decade-chips" class="chip-container"></div>
+                            <div id="decade-chips" class="chip-container" role="group" aria-label="Decade filters"></div>
                         </div>
 
                         <div class="filter-section">
                             <h3>Playlist Size</h3>
-                            <div class="track-count-selector">
-                                <button class="count-btn" data-count="15">15</button>
-                                <button class="count-btn active" data-count="25">25</button>
-                                <button class="count-btn" data-count="40">40</button>
+                            <div class="track-count-selector" role="group" aria-label="Playlist size">
+                                <button class="count-btn" data-count="15" aria-pressed="false">15</button>
+                                <button class="count-btn active" data-count="25" aria-pressed="true">25</button>
+                                <button class="count-btn" data-count="40" aria-pressed="false">40</button>
                             </div>
                         </div>
 
                         <div class="filter-section">
                             <h3>Max Tracks to AI</h3>
                             <p class="filter-hint">Limit how many tracks are sent to the AI for selection. Higher = better variety but more cost.</p>
-                            <div class="track-limit-selector">
-                                <button class="limit-btn" data-limit="100">100</button>
-                                <button class="limit-btn" data-limit="250">250</button>
-                                <button class="limit-btn active" data-limit="500">500</button>
-                                <button class="limit-btn" data-limit="1000">1000</button>
-                                <button class="limit-btn" data-limit="0">No limit</button>
+                            <div class="track-limit-selector" role="group" aria-label="Maximum tracks to send to AI">
+                                <button class="limit-btn" data-limit="100" aria-pressed="false">100</button>
+                                <button class="limit-btn" data-limit="250" aria-pressed="false">250</button>
+                                <button class="limit-btn active" data-limit="500" aria-pressed="true">500</button>
+                                <button class="limit-btn" data-limit="1000" aria-pressed="false">1000</button>
+                                <button class="limit-btn" data-limit="0" aria-pressed="false">No limit</button>
                             </div>
                         </div>
 
@@ -162,12 +164,12 @@
 
                         <div class="filter-section">
                             <h3>Minimum Rating</h3>
-                            <div class="rating-selector">
-                                <button class="rating-btn active" data-rating="0">Any</button>
-                                <button class="rating-btn" data-rating="2">★+</button>
-                                <button class="rating-btn" data-rating="4">★★+</button>
-                                <button class="rating-btn" data-rating="6">★★★+</button>
-                                <button class="rating-btn" data-rating="8">★★★★+</button>
+                            <div class="rating-selector" role="group" aria-label="Minimum track rating">
+                                <button class="rating-btn active" data-rating="0" aria-pressed="true">Any</button>
+                                <button class="rating-btn" data-rating="2" aria-pressed="false">★+</button>
+                                <button class="rating-btn" data-rating="4" aria-pressed="false">★★+</button>
+                                <button class="rating-btn" data-rating="6" aria-pressed="false">★★★+</button>
+                                <button class="rating-btn" data-rating="8" aria-pressed="false">★★★★+</button>
                             </div>
                         </div>
 
@@ -188,9 +190,10 @@
                                 id="playlist-name-input"
                                 class="playlist-name-input"
                                 placeholder="Enter playlist name..."
+                                aria-label="Playlist name"
                             >
                         </div>
-                        <div id="playlist-tracks" class="playlist-tracks"></div>
+                        <div id="playlist-tracks" class="playlist-tracks" role="list" aria-label="Generated playlist"></div>
                         <div class="results-actions">
                             <button id="regenerate-btn" class="btn btn-secondary">
                                 Regenerate
@@ -203,8 +206,8 @@
                 </div>
 
                 <!-- Loading Overlay -->
-                <div id="loading-overlay" class="loading-overlay hidden">
-                    <div class="spinner"></div>
+                <div id="loading-overlay" class="loading-overlay hidden" role="status" aria-live="polite" aria-busy="true">
+                    <div class="spinner" aria-hidden="true"></div>
                     <p id="loading-message">Analyzing...</p>
                     <p id="loading-substep" class="loading-substep"></p>
                 </div>
@@ -268,15 +271,15 @@
         </main>
 
         <!-- Error Toast -->
-        <div id="error-toast" class="toast error hidden">
+        <div id="error-toast" class="toast error hidden" role="alert" aria-live="assertive">
             <span id="error-message"></span>
-            <button class="toast-close" onclick="hideError()">&times;</button>
+            <button class="toast-close" onclick="hideError()" aria-label="Dismiss error">&times;</button>
         </div>
 
         <!-- Success Toast -->
-        <div id="success-toast" class="toast success hidden">
+        <div id="success-toast" class="toast success hidden" role="status" aria-live="polite">
             <span id="success-message"></span>
-            <button class="toast-close" onclick="hideSuccess()">&times;</button>
+            <button class="toast-close" onclick="hideSuccess()" aria-label="Dismiss message">&times;</button>
         </div>
 
         <!-- Footer -->

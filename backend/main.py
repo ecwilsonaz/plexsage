@@ -1,5 +1,7 @@
 """FastAPI application for PlexSage."""
 
+import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Response
@@ -33,20 +35,8 @@ from backend.analyzer import analyze_prompt as do_analyze_prompt, analyze_track 
 from backend.generator import generate_playlist as do_generate_playlist
 
 
-app = FastAPI(
-    title="PlexSage",
-    description="Plex playlist generator powered by LLMs",
-    version="0.1.0",
-)
-
-
-# =============================================================================
-# Startup Event
-# =============================================================================
-
-
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """Initialize clients on startup."""
     config = get_config()
 
@@ -61,6 +51,16 @@ async def startup_event():
     # Initialize LLM client if configured
     if config.llm.api_key:
         init_llm_client(config.llm)
+
+    yield
+
+
+app = FastAPI(
+    title="PlexSage",
+    description="Plex playlist generator powered by LLMs",
+    version="0.1.0",
+    lifespan=lifespan,
+)
 
 
 # =============================================================================
@@ -179,7 +179,7 @@ async def get_library_stats() -> LibraryStatsResponse:
     if not plex_client or not plex_client.is_connected():
         raise HTTPException(status_code=503, detail="Plex not connected")
 
-    stats = plex_client.get_library_stats()
+    stats = await asyncio.to_thread(plex_client.get_library_stats)
     return LibraryStatsResponse(
         total_tracks=stats.get("total_tracks", 0),
         genres=[GenreCount(**g) for g in stats.get("genres", [])],
@@ -194,7 +194,7 @@ async def search_library(q: str = Query(..., description="Search query")) -> lis
     if not plex_client or not plex_client.is_connected():
         raise HTTPException(status_code=503, detail="Plex not connected")
 
-    return plex_client.search_tracks(q)
+    return await asyncio.to_thread(plex_client.search_tracks, q)
 
 
 # =============================================================================
@@ -214,7 +214,7 @@ async def analyze_prompt(request: AnalyzePromptRequest) -> AnalyzePromptResponse
         raise HTTPException(status_code=503, detail="LLM not configured")
 
     try:
-        return do_analyze_prompt(request.prompt)
+        return await asyncio.to_thread(do_analyze_prompt, request.prompt)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -233,12 +233,12 @@ async def analyze_track(request: AnalyzeTrackRequest) -> AnalyzeTrackResponse:
         raise HTTPException(status_code=503, detail="LLM not configured")
 
     # Get the track
-    track = plex_client.get_track_by_key(request.rating_key)
+    track = await asyncio.to_thread(plex_client.get_track_by_key, request.rating_key)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
 
     try:
-        return do_analyze_track(track)
+        return await asyncio.to_thread(do_analyze_track, track)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -255,7 +255,8 @@ async def preview_filters(request: FilterPreviewRequest) -> FilterPreviewRespons
         raise HTTPException(status_code=503, detail="Plex not connected")
 
     # Get filtered track count
-    matching_tracks = plex_client.get_filtered_track_count(
+    matching_tracks = await asyncio.to_thread(
+        plex_client.get_filtered_track_count,
         genres=request.genres if request.genres else None,
         decades=request.decades if request.decades else None,
         min_rating=request.min_rating,
@@ -316,13 +317,16 @@ async def generate_playlist(request: GenerateRequest) -> GenerateResponse:
     seed_track = None
     selected_dimensions = None
     if request.seed_track:
-        seed_track = plex_client.get_track_by_key(request.seed_track.rating_key)
+        seed_track = await asyncio.to_thread(
+            plex_client.get_track_by_key, request.seed_track.rating_key
+        )
         if not seed_track:
             raise HTTPException(status_code=404, detail="Seed track not found")
         selected_dimensions = request.seed_track.selected_dimensions
 
     try:
-        return do_generate_playlist(
+        return await asyncio.to_thread(
+            do_generate_playlist,
             prompt=request.prompt,
             seed_track=seed_track,
             selected_dimensions=selected_dimensions,
@@ -352,7 +356,9 @@ async def save_playlist(request: SavePlaylistRequest) -> SavePlaylistResponse:
     if not plex_client or not plex_client.is_connected():
         raise HTTPException(status_code=503, detail="Plex not connected")
 
-    result = plex_client.create_playlist(request.name, request.rating_keys)
+    result = await asyncio.to_thread(
+        plex_client.create_playlist, request.name, request.rating_keys
+    )
     return SavePlaylistResponse(**result)
 
 
@@ -364,6 +370,9 @@ async def save_playlist(request: SavePlaylistRequest) -> SavePlaylistResponse:
 @app.get("/api/art/{rating_key}")
 async def get_album_art(rating_key: str):
     """Proxy album art from Plex to avoid exposing token to browser."""
+    if not rating_key.isdigit():
+        raise HTTPException(status_code=400, detail="Invalid rating key format")
+
     plex_client = get_plex_client()
     config = get_config()
 
@@ -371,26 +380,28 @@ async def get_album_art(rating_key: str):
         raise HTTPException(status_code=503, detail="Plex not connected")
 
     # Get track to find thumb URL
-    track = plex_client.get_track_by_key(rating_key)
+    track = await asyncio.to_thread(plex_client.get_track_by_key, rating_key)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
 
-    # Build Plex art URL
-    # Track object has art_url which is our proxy URL, so we need to get actual thumb
-    try:
-        plex_track = plex_client._server.fetchItem(int(rating_key))
-        if plex_track.thumb:
-            thumb_url = f"{config.plex.url}{plex_track.thumb}?X-Plex-Token={config.plex.token}"
-
+    # Get raw thumb path from Plex
+    thumb_path = await asyncio.to_thread(plex_client.get_thumb_path, rating_key)
+    if thumb_path:
+        try:
+            thumb_url = f"{config.plex.url}{thumb_path}"
             async with httpx.AsyncClient() as client:
-                response = await client.get(thumb_url, timeout=10.0)
+                response = await client.get(
+                    thumb_url,
+                    headers={"X-Plex-Token": config.plex.token},
+                    timeout=10.0,
+                )
                 if response.status_code == 200:
                     return Response(
                         content=response.content,
                         media_type=response.headers.get("content-type", "image/jpeg"),
                     )
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     raise HTTPException(status_code=404, detail="Art not available")
 

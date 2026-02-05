@@ -5,6 +5,7 @@
     --bg-primary: #1a1a1a;
     --bg-secondary: #242424;
     --bg-tertiary: #2d2d2d;
+    --bg-elevated: #2d2d2d;
     --bg-hover: #363636;
     --accent: #e5a00d;
     --accent-hover: #f0b020;
@@ -12,6 +13,7 @@
     --text-secondary: #a0a0a0;
     --text-muted: #666666;
     --border-color: #3a3a3a;
+    --border: #3a3a3a;
     --error: #e53935;
     --success: #43a047;
     --warning: #fb8c00;
@@ -24,6 +26,7 @@
     --spacing-xl: 32px;
 
     /* Border Radius */
+    --radius: 6px;
     --radius-sm: 4px;
     --radius-md: 8px;
     --radius-lg: 12px;

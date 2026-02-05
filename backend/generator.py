@@ -1,10 +1,13 @@
 """Playlist generation with library validation."""
 
+import logging
 import random
 
 from backend.llm_client import get_llm_client
+
+logger = logging.getLogger(__name__)
 from backend.models import GenerateResponse, Track
-from backend.plex_client import get_plex_client, match_track
+from backend.plex_client import PlexQueryError, get_plex_client
 
 
 GENERATION_SYSTEM = """You are a music curator creating a playlist from a user's music library.
@@ -63,7 +66,7 @@ def generate_playlist(
         ValueError: If no tracks match filters or LLM response invalid
         RuntimeError: If clients not initialized
     """
-    print("[GENERATE] Starting playlist generation...")
+    logger.info("Starting playlist generation")
     llm_client = get_llm_client()
     plex_client = get_plex_client()
 
@@ -73,30 +76,33 @@ def generate_playlist(
         raise RuntimeError("Plex client not initialized")
 
     # Get filtered tracks from library
-    print(f"[GENERATE] Fetching tracks with filters: genres={genres}, decades={decades}, min_rating={min_rating}")
-    filtered_tracks = plex_client.get_tracks_by_filters(
-        genres=genres,
-        decades=decades,
-        exclude_live=exclude_live,
-        min_rating=min_rating,
-    )
+    logger.info("Fetching tracks with filters: genres=%s, decades=%s, min_rating=%s", genres, decades, min_rating)
+    try:
+        filtered_tracks = plex_client.get_tracks_by_filters(
+            genres=genres,
+            decades=decades,
+            exclude_live=exclude_live,
+            min_rating=min_rating,
+        )
+    except PlexQueryError as e:
+        raise RuntimeError(f"Plex server error while fetching tracks: {e}") from e
 
-    print(f"[GENERATE] Found {len(filtered_tracks)} tracks matching filters")
+    logger.info("Found %d tracks matching filters", len(filtered_tracks))
 
     if not filtered_tracks:
         raise ValueError("No tracks match the selected filters. Try broadening your selection.")
 
     # Apply max_tracks_to_ai limit with random sampling
     if max_tracks_to_ai > 0 and len(filtered_tracks) > max_tracks_to_ai:
-        print(f"[GENERATE] Sampling {max_tracks_to_ai} tracks from {len(filtered_tracks)}")
+        logger.info("Sampling %d tracks from %d", max_tracks_to_ai, len(filtered_tracks))
         filtered_tracks = random.sample(filtered_tracks, max_tracks_to_ai)
     elif len(filtered_tracks) > 2000:
         # Hard cap at 2000 to stay within context limits
-        print(f"[GENERATE] Hard cap: sampling 2000 tracks from {len(filtered_tracks)}")
+        logger.info("Hard cap: sampling 2000 tracks from %d", len(filtered_tracks))
         filtered_tracks = random.sample(filtered_tracks, 2000)
 
     # Build the track list for the LLM
-    print(f"[GENERATE] Building track list for {len(filtered_tracks)} tracks...")
+    logger.debug("Building track list for %d tracks", len(filtered_tracks))
     track_list = "\n".join(
         f"{i+1}. {t.artist} - {t.title} ({t.album}, {t.year or 'Unknown year'})"
         for i, t in enumerate(filtered_tracks)
@@ -124,12 +130,12 @@ def generate_playlist(
     generation_prompt = "\n\n".join(generation_parts)
 
     # Call LLM
-    print(f"[GENERATE] Calling LLM with prompt length: {len(generation_prompt)} chars...")
+    logger.info("Calling LLM with prompt length: %d chars", len(generation_prompt))
     response = llm_client.generate(generation_prompt, GENERATION_SYSTEM)
-    print(f"[GENERATE] LLM response received: {response.input_tokens} input, {response.output_tokens} output tokens")
+    logger.info("LLM response received: %d input, %d output tokens", response.input_tokens, response.output_tokens)
 
     # Parse response
-    print(f"[GENERATE] Parsing JSON response...")
+    logger.debug("Parsing JSON response")
     track_selections = llm_client.parse_json_response(response)
 
     if not isinstance(track_selections, list):

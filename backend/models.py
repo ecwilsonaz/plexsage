@@ -91,8 +91,8 @@ class LLMConfig(BaseModel):
 
     provider: Literal["anthropic", "openai", "gemini"]
     api_key: str
-    model_analysis: str | None = None
-    model_generation: str | None = None
+    model_analysis: str
+    model_generation: str
     smart_generation: bool = False
 
 
@@ -252,6 +252,8 @@ class SavePlaylistResponse(BaseModel):
     success: bool
     playlist_id: str | None = None
     error: str | None = None
+    tracks_added: int | None = None
+    tracks_skipped: int | None = None
 
 
 class ConfigResponse(BaseModel):

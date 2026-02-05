@@ -81,11 +81,11 @@ def analyze_prompt(prompt: str) -> AnalyzePromptResponse:
     # Build prompt with available filter context
     analysis_prompt = f"""User's playlist request: "{prompt}"
 
-Available genres in their library (with track counts):
-{', '.join(f"{g.name} ({g.count})" for g in available_genres[:30])}
+Available genres in their library:
+{', '.join(f"{g.name} ({g.count})" if g.count else g.name for g in available_genres[:30])}
 
 Available decades in their library:
-{', '.join(f"{d.name} ({d.count})" for d in available_decades)}
+{', '.join(f"{d.name} ({d.count})" if d.count else d.name for d in available_decades)}
 
 Suggest genres and decades from the available options that best match the user's request."""
 
