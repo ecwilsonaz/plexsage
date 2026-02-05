@@ -382,6 +382,9 @@ def sync_library(
 
         conn = ensure_db_initialized()
 
+        # Clear existing tracks to remove any deleted from Plex since last sync
+        conn.execute("DELETE FROM tracks")
+
         # Phase 1: Fetch albums for genre/year mapping
         logger.info("Fetching album metadata from Plex...")
         album_metadata = plex_client.get_all_albums_metadata()

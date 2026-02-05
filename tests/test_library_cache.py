@@ -565,3 +565,43 @@ class TestSyncLibrary:
         state = library_cache.get_sync_state()
         assert state["error"] is None
         assert state["is_syncing"] is False
+
+    def test_sync_removes_deleted_tracks(self, initialized_db, mock_track, reset_sync_state):
+        """Sync removes tracks that no longer exist in Plex."""
+        # Pre-populate cache with a track that won't be in the sync
+        conn = library_cache.get_db_connection()
+        conn.execute(
+            "INSERT INTO tracks (rating_key, title, artist, album, duration_ms, "
+            "year, genres, user_rating, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("stale-track-999", "Stale Song", "Old Artist", "Deleted Album",
+             180000, 2000, json.dumps(["Rock"]), 5, False),
+        )
+        conn.commit()
+        conn.close()
+
+        # Verify stale track exists
+        tracks_before = library_cache.get_cached_tracks()
+        assert any(t["rating_key"] == "stale-track-999" for t in tracks_before)
+
+        # Create mock client that returns different tracks
+        class MockPlexClient:
+            def get_machine_identifier(self):
+                return "test-server-123"
+
+            def get_all_albums_metadata(self):
+                return {"100": {"genres": ["Electronic"], "year": 2024}}
+
+            def get_all_raw_tracks(self):
+                return [mock_track("new-1", "New Song", "New Artist", "New Album", 200000, "100")]
+
+        # Run sync
+        result = library_cache.sync_library(MockPlexClient())
+
+        assert result["success"] is True
+        assert result["track_count"] == 1
+
+        # Verify stale track was removed
+        tracks_after = library_cache.get_cached_tracks()
+        assert len(tracks_after) == 1
+        assert tracks_after[0]["rating_key"] == "new-1"
+        assert not any(t["rating_key"] == "stale-track-999" for t in tracks_after)
