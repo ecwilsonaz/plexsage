@@ -6,7 +6,7 @@ from collections.abc import Generator
 
 from backend.llm_client import get_llm_client
 from backend.models import GenerateResponse, Track
-from backend.plex_client import PlexQueryError, get_plex_client, get_track_cache
+from backend.plex_client import PlexQueryError, get_plex_client
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,6 @@ def generate_playlist_stream(
             yield emit("error", {"message": "Plex client not initialized"})
             return
 
-        track_cache = get_track_cache()
         has_filters = genres or decades or min_rating > 0
 
         # Step 1: Fetch tracks - use random sampling when no filters to avoid loading entire library
@@ -61,34 +60,27 @@ def generate_playlist_stream(
                 return
             logger.info("Got %d random tracks", len(filtered_tracks))
         else:
-            # Filters applied - check cache or fetch with filters
-            cached_tracks = track_cache.get(genres, decades, exclude_live, min_rating)
+            # Filters applied - fetch with server-side sampling
+            yield emit("progress", {"step": "fetching", "message": "Fetching tracks from library..."})
 
-            if cached_tracks is not None:
-                yield emit("progress", {"step": "cache_hit", "message": "Using cached library results..."})
-                filtered_tracks = cached_tracks
-                logger.info("Using %d cached tracks", len(filtered_tracks))
-            else:
-                yield emit("progress", {"step": "fetching", "message": "Fetching tracks from library..."})
+            # Calculate effective limit for server-side sampling
+            effective_limit = max_tracks_to_ai if max_tracks_to_ai > 0 else 2000
 
-                # Calculate effective limit for server-side sampling
-                effective_limit = max_tracks_to_ai if max_tracks_to_ai > 0 else 2000
+            logger.info("Fetching tracks with filters: genres=%s, decades=%s, min_rating=%s, limit=%s",
+                        genres, decades, min_rating, effective_limit)
+            try:
+                filtered_tracks = plex_client.get_tracks_by_filters(
+                    genres=genres,
+                    decades=decades,
+                    exclude_live=exclude_live,
+                    min_rating=min_rating,
+                    limit=effective_limit,
+                )
+            except PlexQueryError as e:
+                yield emit("error", {"message": f"Plex server error: {e}"})
+                return
 
-                logger.info("Fetching tracks with filters: genres=%s, decades=%s, min_rating=%s, limit=%s",
-                            genres, decades, min_rating, effective_limit)
-                try:
-                    filtered_tracks = plex_client.get_tracks_by_filters(
-                        genres=genres,
-                        decades=decades,
-                        exclude_live=exclude_live,
-                        min_rating=min_rating,
-                        limit=effective_limit,
-                    )
-                except PlexQueryError as e:
-                    yield emit("error", {"message": f"Plex server error: {e}"})
-                    return
-
-                logger.info("Fetched %d tracks (server-side sampled)", len(filtered_tracks))
+            logger.info("Fetched %d tracks (server-side sampled)", len(filtered_tracks))
 
         if not filtered_tracks:
             yield emit("error", {"message": "No tracks match the selected filters. Try broadening your selection."})
