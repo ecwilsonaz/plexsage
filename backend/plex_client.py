@@ -234,6 +234,65 @@ class PlexClient:
         except Exception:
             return []
 
+    def get_library_total_tracks(self) -> int:
+        """Get total track count in the music library.
+
+        Returns:
+            Total number of tracks, or 0 if not connected
+        """
+        if not self._library:
+            return 0
+
+        try:
+            return self._library.totalViewSize(libtype="track")
+        except Exception as e:
+            logger.exception("Failed to get library track count: %s", e)
+            return 0
+
+    def get_all_raw_tracks(self) -> list[Any]:
+        """Get all raw track objects from the library.
+
+        This fetches all tracks in a single API call. For large libraries
+        (30k+ tracks), this may take 30-60 seconds.
+
+        Returns:
+            List of raw Plex track objects
+        """
+        if not self._library:
+            return []
+
+        try:
+            logger.info("Fetching all tracks from Plex (this may take a while)...")
+            return self._library.search(libtype="track")
+        except Exception as e:
+            logger.exception("Failed to get all tracks: %s", e)
+            return []
+
+    def get_all_albums_metadata(self) -> dict[str, dict[str, Any]]:
+        """Fetch all albums and return mapping of rating_key -> metadata.
+
+        Returns:
+            Dict mapping album rating_key (as string) to dict with 'genres' and 'year'
+        """
+        if not self._library:
+            return {}
+
+        try:
+            logger.info("Fetching all albums for metadata mapping...")
+            albums = self._library.search(libtype="album")
+            album_metadata = {
+                str(album.ratingKey): {
+                    "genres": [g.tag for g in album.genres],
+                    "year": getattr(album, "year", None),
+                }
+                for album in albums
+            }
+            logger.info("Got metadata for %d albums", len(album_metadata))
+            return album_metadata
+        except Exception as e:
+            logger.exception("Failed to get album metadata: %s", e)
+            return {}
+
     def get_library_stats(self) -> dict[str, Any]:
         """Get statistics about the music library.
 

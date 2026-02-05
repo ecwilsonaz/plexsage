@@ -1085,17 +1085,84 @@ input[type="number"]:focus {
     to { transform: translate(-50%, 0); opacity: 1; }
 }
 
+/* Sync Modal */
+.sync-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(26, 26, 26, 0.98);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1001;
+    animation: fadeIn var(--transition-normal);
+}
+
+.sync-modal.hidden {
+    display: none;
+}
+
+.sync-modal-content {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl) var(--spacing-xl);
+    text-align: center;
+    max-width: 400px;
+    width: 90%;
+}
+
+.sync-modal-content h2 {
+    font-size: var(--font-size-xl);
+    margin-bottom: var(--spacing-sm);
+    color: var(--accent);
+}
+
+.sync-modal-description {
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-lg);
+}
+
+.sync-progress-bar {
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+    margin-bottom: var(--spacing-md);
+}
+
+.sync-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: var(--radius-full);
+    transition: width 0.3s ease;
+    width: 0%;
+}
+
+.sync-progress-text {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
 /* Footer */
 .app-footer {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: var(--spacing-sm);
+    justify-content: space-between;
     padding: var(--spacing-xl) 0;
     margin-top: var(--spacing-xl);
     border-top: 1px solid var(--border);
     font-size: var(--font-size-sm);
     color: var(--text-muted);
+}
+
+.footer-left,
+.footer-right {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
 }
 
 .footer-brand {
@@ -1117,6 +1184,24 @@ input[type="number"]:focus {
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
     font-size: 0.8rem;
     color: var(--text-secondary);
+}
+
+.footer-library-status {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    color: var(--text-secondary);
+}
+
+.footer-refresh {
+    color: var(--accent);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+}
+
+.footer-refresh:hover {
+    color: var(--accent-hover);
+    text-decoration: underline;
 }
 
 /* Utility Classes */

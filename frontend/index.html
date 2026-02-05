@@ -224,6 +224,18 @@
                     </div>
                 </div>
 
+                <!-- Sync Progress Modal (First-time sync) -->
+                <div id="sync-modal" class="sync-modal hidden" role="dialog" aria-modal="true" aria-labelledby="sync-modal-title">
+                    <div class="sync-modal-content">
+                        <h2 id="sync-modal-title">Syncing Your Library</h2>
+                        <p class="sync-modal-description">Building your local track cache for faster access...</p>
+                        <div class="sync-progress-bar">
+                            <div id="sync-progress-fill" class="sync-progress-fill"></div>
+                        </div>
+                        <p id="sync-progress-text" class="sync-progress-text">0 / 0 tracks</p>
+                    </div>
+                </div>
+
                 <!-- Success Modal -->
                 <div id="success-modal" class="success-modal hidden" role="dialog" aria-modal="true" aria-labelledby="success-modal-title">
                     <div class="success-modal-content">
@@ -378,9 +390,20 @@
 
         <!-- Footer -->
         <footer class="app-footer">
-            <a href="https://github.com/ecwilsonaz/mediasage" target="_blank" rel="noopener" class="footer-brand">MediaSage</a>
-            <span class="footer-separator">·</span>
-            <span id="footer-model" class="footer-model">--</span>
+            <div class="footer-left">
+                <a href="https://github.com/ecwilsonaz/mediasage" target="_blank" rel="noopener" class="footer-brand">MediaSage <span id="footer-version"></span></a>
+                <span class="footer-separator">·</span>
+                <span id="footer-model" class="footer-model">--</span>
+            </div>
+            <div class="footer-right">
+                <span id="footer-library-status" class="footer-library-status hidden">
+                    <span id="footer-track-count">--</span>
+                    <span class="footer-separator">·</span>
+                    <span id="footer-sync-time">--</span>
+                    <span class="footer-separator">·</span>
+                    <a href="#" id="footer-refresh-link" class="footer-refresh">Refresh</a>
+                </span>
+            </div>
         </footer>
     </div>
 

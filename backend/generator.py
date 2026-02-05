@@ -7,8 +7,68 @@ from collections.abc import Generator
 from backend.llm_client import get_llm_client
 from backend.models import GenerateResponse, Track
 from backend.plex_client import PlexQueryError, get_plex_client
+from backend import library_cache
 
 logger = logging.getLogger(__name__)
+
+
+def _cached_track_to_model(cached: dict) -> Track:
+    """Convert a cached track dict to a Track model."""
+    return Track(
+        rating_key=cached["rating_key"],
+        title=cached["title"],
+        artist=cached["artist"],
+        album=cached["album"],
+        duration_ms=cached.get("duration_ms") or 0,
+        year=cached.get("year"),
+        genres=cached.get("genres") or [],
+        art_url=f"/api/art/{cached['rating_key']}",
+    )
+
+
+def _get_tracks_from_cache_or_plex(
+    plex_client,
+    genres: list[str] | None,
+    decades: list[str] | None,
+    exclude_live: bool,
+    min_rating: int,
+    max_tracks_to_ai: int,
+) -> list[Track]:
+    """Get tracks from cache if available, otherwise from Plex.
+
+    Returns:
+        List of Track objects
+    """
+    has_filters = genres or decades or min_rating > 0
+    effective_limit = max_tracks_to_ai if max_tracks_to_ai > 0 else 2000
+
+    # Try cache first
+    if library_cache.has_cached_tracks():
+        logger.info("Using cached tracks for generation")
+        cached_tracks = library_cache.get_tracks_by_filters(
+            genres=genres,
+            decades=decades,
+            min_rating=min_rating,
+            exclude_live=exclude_live,
+            limit=effective_limit,
+        )
+        return [_cached_track_to_model(t) for t in cached_tracks]
+
+    # Fall back to Plex
+    logger.info("Cache empty, fetching from Plex")
+    if not has_filters:
+        return plex_client.get_random_tracks(
+            count=effective_limit,
+            exclude_live=exclude_live,
+        )
+    else:
+        return plex_client.get_tracks_by_filters(
+            genres=genres,
+            decades=decades,
+            exclude_live=exclude_live,
+            min_rating=min_rating,
+            limit=effective_limit,
+        )
 
 
 def generate_playlist_stream(
@@ -44,43 +104,31 @@ def generate_playlist_stream(
 
         has_filters = genres or decades or min_rating > 0
 
-        # Step 1: Fetch tracks - use random sampling when no filters to avoid loading entire library
-        if not has_filters:
-            # No filters - use efficient random sampling
+        # Step 1: Fetch tracks from cache or Plex
+        using_cache = library_cache.has_cached_tracks()
+        if using_cache:
+            yield emit("progress", {"step": "fetching", "message": "Loading tracks from cache..."})
+        elif not has_filters:
             yield emit("progress", {"step": "fetching", "message": "Sampling random tracks from library..."})
-            sample_size = max_tracks_to_ai if max_tracks_to_ai > 0 else 2000
-            logger.info("No filters applied, fetching %d random tracks", sample_size)
-            try:
-                filtered_tracks = plex_client.get_random_tracks(
-                    count=sample_size,
-                    exclude_live=exclude_live,
-                )
-            except PlexQueryError as e:
-                yield emit("error", {"message": f"Plex server error: {e}"})
-                return
-            logger.info("Got %d random tracks", len(filtered_tracks))
         else:
-            # Filters applied - fetch with server-side sampling
             yield emit("progress", {"step": "fetching", "message": "Fetching tracks from library..."})
 
-            # Calculate effective limit for server-side sampling
-            effective_limit = max_tracks_to_ai if max_tracks_to_ai > 0 else 2000
+        logger.info("Fetching tracks: genres=%s, decades=%s, min_rating=%s, using_cache=%s",
+                    genres, decades, min_rating, using_cache)
+        try:
+            filtered_tracks = _get_tracks_from_cache_or_plex(
+                plex_client=plex_client,
+                genres=genres,
+                decades=decades,
+                exclude_live=exclude_live,
+                min_rating=min_rating,
+                max_tracks_to_ai=max_tracks_to_ai,
+            )
+        except PlexQueryError as e:
+            yield emit("error", {"message": f"Plex server error: {e}"})
+            return
 
-            logger.info("Fetching tracks with filters: genres=%s, decades=%s, min_rating=%s, limit=%s",
-                        genres, decades, min_rating, effective_limit)
-            try:
-                filtered_tracks = plex_client.get_tracks_by_filters(
-                    genres=genres,
-                    decades=decades,
-                    exclude_live=exclude_live,
-                    min_rating=min_rating,
-                    limit=effective_limit,
-                )
-            except PlexQueryError as e:
-                yield emit("error", {"message": f"Plex server error: {e}"})
-                return
-
-            logger.info("Fetched %d tracks (server-side sampled)", len(filtered_tracks))
+        logger.info("Got %d tracks", len(filtered_tracks))
 
         if not filtered_tracks:
             yield emit("error", {"message": "No tracks match the selected filters. Try broadening your selection."})
@@ -257,38 +305,24 @@ def generate_playlist(
     if not plex_client:
         raise RuntimeError("Plex client not initialized")
 
-    # Get tracks from library
-    has_filters = genres or decades or min_rating > 0
+    # Get tracks from cache or Plex
+    using_cache = library_cache.has_cached_tracks()
 
-    if not has_filters:
-        # No filters - use efficient random sampling
-        sample_size = max_tracks_to_ai if max_tracks_to_ai > 0 else 2000
-        logger.info("No filters applied, fetching %d random tracks", sample_size)
-        try:
-            filtered_tracks = plex_client.get_random_tracks(
-                count=sample_size,
-                exclude_live=exclude_live,
-            )
-        except PlexQueryError as e:
-            raise RuntimeError(f"Plex server error while fetching tracks: {e}") from e
-        logger.info("Got %d random tracks", len(filtered_tracks))
-    else:
-        # Filters applied - fetch with server-side sampling for efficiency
-        effective_limit = max_tracks_to_ai if max_tracks_to_ai > 0 else 2000
-        logger.info("Fetching tracks with filters: genres=%s, decades=%s, min_rating=%s, limit=%s",
-                    genres, decades, min_rating, effective_limit)
-        try:
-            filtered_tracks = plex_client.get_tracks_by_filters(
-                genres=genres,
-                decades=decades,
-                exclude_live=exclude_live,
-                min_rating=min_rating,
-                limit=effective_limit,
-            )
-        except PlexQueryError as e:
-            raise RuntimeError(f"Plex server error while fetching tracks: {e}") from e
+    logger.info("Fetching tracks: genres=%s, decades=%s, min_rating=%s, using_cache=%s",
+                genres, decades, min_rating, using_cache)
+    try:
+        filtered_tracks = _get_tracks_from_cache_or_plex(
+            plex_client=plex_client,
+            genres=genres,
+            decades=decades,
+            exclude_live=exclude_live,
+            min_rating=min_rating,
+            max_tracks_to_ai=max_tracks_to_ai,
+        )
+    except PlexQueryError as e:
+        raise RuntimeError(f"Plex server error while fetching tracks: {e}") from e
 
-        logger.info("Fetched %d tracks (server-side sampled)", len(filtered_tracks))
+    logger.info("Got %d tracks", len(filtered_tracks))
 
     if not filtered_tracks:
         raise ValueError("No tracks match the selected filters. Try broadening your selection.")

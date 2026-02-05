@@ -26,8 +26,8 @@
 
 **Purpose**: Project initialization and data directory structure
 
-- [ ] T001 Create `data/` directory and add `data/*.db` to `.gitignore`
-- [ ] T002 [P] Add Pydantic models for sync status in `backend/models.py`
+- [X] T001 Create `data/` directory and add `data/*.db` to `.gitignore`
+- [X] T002 [P] Add Pydantic models for sync status in `backend/models.py`
 
 ---
 
@@ -37,10 +37,10 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T003 Create `backend/library_cache.py` with SQLite schema initialization (tracks, sync_state tables)
-- [ ] T004 Implement database connection management with WAL mode in `backend/library_cache.py`
-- [ ] T005 Add batch track fetching helper to `backend/plex_client.py` (container_start/container_size pagination)
-- [ ] T006 [P] Create `tests/test_library_cache.py` with schema creation tests
+- [X] T003 Create `backend/library_cache.py` with SQLite schema initialization (tracks, sync_state tables)
+- [X] T004 Implement database connection management with WAL mode in `backend/library_cache.py`
+- [X] T005 Add batch track fetching helper to `backend/plex_client.py` (container_start/container_size pagination)
+- [X] T006 [P] Create `tests/test_library_cache.py` with schema creation tests
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -54,12 +54,12 @@
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] Implement `get_cached_tracks()` function in `backend/library_cache.py`
-- [ ] T008 [US1] Implement `get_tracks_by_filters()` using cache in `backend/library_cache.py` (genre, decade, rating, live exclusion)
-- [ ] T009 [US1] Implement `get_sync_state()` function in `backend/library_cache.py`
-- [ ] T010 [US1] Add GET `/api/library/status` endpoint in `backend/main.py`
-- [ ] T011 [US1] Modify existing track query endpoints to use cache instead of live Plex queries in `backend/main.py`
-- [ ] T012 [P] [US1] Add cache read tests in `tests/test_library_cache.py`
+- [X] T007 [US1] Implement `get_cached_tracks()` function in `backend/library_cache.py`
+- [X] T008 [US1] Implement `get_tracks_by_filters()` using cache in `backend/library_cache.py` (genre, decade, rating, live exclusion)
+- [X] T009 [US1] Implement `get_sync_state()` function in `backend/library_cache.py`
+- [X] T010 [US1] Add GET `/api/library/status` endpoint in `backend/main.py`
+- [X] T011 [US1] Modify existing track query endpoints to use cache instead of live Plex queries in `backend/main.py`
+- [X] T012 [P] [US1] Add cache read tests in `tests/test_library_cache.py`
 
 **Checkpoint**: At this point, User Story 1 should be fully functional - cached data loads instantly
 
@@ -73,14 +73,14 @@
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Implement `sync_library()` async function with batch fetching in `backend/library_cache.py`
-- [ ] T014 [US2] Implement progress tracking (in-memory state) in `backend/library_cache.py`
-- [ ] T015 [US2] Implement `is_live_version()` computation during sync in `backend/library_cache.py`
-- [ ] T016 [US2] Add POST `/api/library/sync` endpoint in `backend/main.py`
-- [ ] T017 [US2] Add sync progress modal component in `frontend/index.html`
-- [ ] T018 [US2] Implement sync progress polling (1-second interval) in `frontend/app.js`
-- [ ] T019 [US2] Style sync modal with Plexamp aesthetic in `frontend/style.css`
-- [ ] T020 [US2] Add blocking behavior detection (empty cache → show modal) in `frontend/app.js`
+- [X] T013 [US2] Implement `sync_library()` async function with batch fetching in `backend/library_cache.py`
+- [X] T014 [US2] Implement progress tracking (in-memory state) in `backend/library_cache.py`
+- [X] T015 [US2] Implement `is_live_version()` computation during sync in `backend/library_cache.py`
+- [X] T016 [US2] Add POST `/api/library/sync` endpoint in `backend/main.py`
+- [X] T017 [US2] Add sync progress modal component in `frontend/index.html`
+- [X] T018 [US2] Implement sync progress polling (1-second interval) in `frontend/app.js`
+- [X] T019 [US2] Style sync modal with Plexamp aesthetic in `frontend/style.css`
+- [X] T020 [US2] Add blocking behavior detection (empty cache → show modal) in `frontend/app.js`
 - [ ] T021 [P] [US2] Add sync tests (success, progress tracking) in `tests/test_library_cache.py`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work - new users can sync, returning users load instantly
@@ -95,11 +95,11 @@
 
 ### Implementation for User Story 3
 
-- [ ] T022 [US3] Implement background sync (asyncio.create_task) in `backend/library_cache.py`
-- [ ] T023 [US3] Add "already syncing" detection (409 response) in `backend/main.py`
-- [ ] T024 [US3] Add refresh link to footer in `frontend/index.html`
-- [ ] T025 [US3] Implement refresh click handler (POST /api/library/sync) in `frontend/app.js`
-- [ ] T026 [US3] Show "Syncing..." state in footer during background sync in `frontend/app.js`
+- [X] T022 [US3] Implement background sync (asyncio.create_task) in `backend/library_cache.py`
+- [X] T023 [US3] Add "already syncing" detection (409 response) in `backend/main.py`
+- [X] T024 [US3] Add refresh link to footer in `frontend/index.html`
+- [X] T025 [US3] Implement refresh click handler (POST /api/library/sync) in `frontend/app.js`
+- [X] T026 [US3] Show "Syncing..." state in footer during background sync in `frontend/app.js`
 
 **Checkpoint**: Manual refresh works without interrupting user workflow
 
@@ -113,11 +113,11 @@
 
 ### Implementation for User Story 4
 
-- [ ] T027 [US4] Add footer status section (track count, sync time, refresh link) in `frontend/index.html`
-- [ ] T028 [US4] Implement relative time formatting ("2 hours ago") in `frontend/app.js`
-- [ ] T029 [US4] Poll `/api/library/status` on page load and after sync in `frontend/app.js`
-- [ ] T030 [US4] Style footer status with Plexamp aesthetic in `frontend/style.css`
-- [ ] T031 [US4] Handle error state display ("Sync failed · Retry") in `frontend/app.js`
+- [X] T027 [US4] Add footer status section (track count, sync time, refresh link) in `frontend/index.html`
+- [X] T028 [US4] Implement relative time formatting ("2 hours ago") in `frontend/app.js`
+- [X] T029 [US4] Poll `/api/library/status` on page load and after sync in `frontend/app.js`
+- [X] T030 [US4] Style footer status with Plexamp aesthetic in `frontend/style.css`
+- [X] T031 [US4] Handle error state display ("Sync failed · Retry") in `frontend/app.js`
 
 **Checkpoint**: Users always know cache status at a glance
 

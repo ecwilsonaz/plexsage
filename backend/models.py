@@ -275,6 +275,7 @@ class SavePlaylistResponse(BaseModel):
 class ConfigResponse(BaseModel):
     """Config without secrets for display."""
 
+    version: str
     plex_url: str
     plex_connected: bool
     plex_token_set: bool  # True if token is configured (without revealing it)
@@ -364,3 +365,34 @@ class OllamaStatus(BaseModel):
     connected: bool
     model_count: int = 0
     error: str | None = None
+
+
+# =============================================================================
+# Library Cache Models
+# =============================================================================
+
+
+class SyncProgress(BaseModel):
+    """Progress details when sync is running."""
+
+    phase: str | None = None  # "fetching_albums", "fetching", or "processing"
+    current: int
+    total: int
+
+
+class LibraryCacheStatusResponse(BaseModel):
+    """Response from GET /api/library/status."""
+
+    track_count: int
+    synced_at: str | None = None
+    is_syncing: bool
+    sync_progress: SyncProgress | None = None
+    error: str | None = None
+    plex_connected: bool
+
+
+class SyncTriggerResponse(BaseModel):
+    """Response from POST /api/library/sync."""
+
+    started: bool
+    blocking: bool = False

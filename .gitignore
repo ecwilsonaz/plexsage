@@ -75,6 +75,11 @@ logs/
 .env.local
 *.local
 
+# Database files
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
 # Temporary files
 tmp/
 temp/
