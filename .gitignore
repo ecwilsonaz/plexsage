@@ -85,3 +85,4 @@ tmp/
 temp/
 *.tmp
 .archive/
+specs/
