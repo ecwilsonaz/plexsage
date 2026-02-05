@@ -6,21 +6,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Create a non-root user
-RUN groupadd -r plexsageappuser && useradd -r -g plexsageappuser plexsageappuser
+RUN groupadd -r mediasageappuser && useradd -r -g mediasageappuser mediasageappuser
 
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code with ownership
-COPY --chown=plexsageappuser:plexsageappuser backend/ ./backend/
-COPY --chown=plexsageappuser:plexsageappuser frontend/ ./frontend/
+COPY --chown=mediasageappuser:mediasageappuser backend/ ./backend/
+COPY --chown=mediasageappuser:mediasageappuser frontend/ ./frontend/
 
 # Expose port
 EXPOSE 5765
 
 # Switch to non-root user
-USER plexsageappuser
+USER mediasageappuser
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
