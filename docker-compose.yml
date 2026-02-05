@@ -14,6 +14,9 @@ services:
       - PLEX_TOKEN=${PLEX_TOKEN}
       - PLEX_MUSIC_LIBRARY=${PLEX_MUSIC_LIBRARY:-Music}
 
+      # Performance tuning
+      - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
+
       # LLM Provider (anthropic, openai, gemini, ollama, or custom)
       # Defaults to gemini. Can also be configured in the web UI.
       #- LLM_PROVIDER=gemini
