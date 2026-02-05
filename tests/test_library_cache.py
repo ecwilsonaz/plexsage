@@ -605,3 +605,38 @@ class TestSyncLibrary:
         assert len(tracks_after) == 1
         assert tracks_after[0]["rating_key"] == "new-1"
         assert not any(t["rating_key"] == "stale-track-999" for t in tracks_after)
+
+    def test_failed_sync_resets_cache_state(self, initialized_db, mock_track, reset_sync_state):
+        """Failed sync resets track_count so has_cached_tracks() returns False."""
+        # First, do a successful sync to populate cache
+        class SuccessfulClient:
+            def get_machine_identifier(self):
+                return "test-server-123"
+
+            def get_all_albums_metadata(self):
+                return {"100": {"genres": ["Rock"], "year": 2020}}
+
+            def get_all_raw_tracks(self):
+                return [mock_track("1", "Song", "Artist", "Album", 180000, "100")]
+
+        result = library_cache.sync_library(SuccessfulClient())
+        assert result["success"] is True
+        assert library_cache.has_cached_tracks() is True
+
+        # Reset sync state for next sync attempt
+        library_cache._sync_state["is_syncing"] = False
+
+        # Now attempt a sync that fails during Plex API call
+        class FailingClient:
+            def get_machine_identifier(self):
+                return "test-server-123"
+
+            def get_all_albums_metadata(self):
+                raise ConnectionError("Plex unreachable")
+
+        result = library_cache.sync_library(FailingClient())
+        assert result["success"] is False
+
+        # Cache should now report as empty to avoid using stale data
+        assert library_cache.has_cached_tracks() is False
+        assert library_cache.get_sync_state()["track_count"] == 0
