@@ -120,6 +120,201 @@ async function generatePlaylist(request) {
     });
 }
 
+// Progress message queue for smooth display
+const progressQueue = {
+    messages: [],
+    currentStep: null,
+    isProcessing: false,
+    minDisplayTime: 500,
+    onDisplay: null,
+    onComplete: null,
+    completeData: null,
+    aiCycleInterval: null,
+    aiCycleIndex: 0,
+    aiMessages: [
+        'AI is understanding your request...',
+        'AI is analyzing the vibe...',
+        'AI is scanning your library...',
+        'AI is browsing through artists...',
+        'AI is exploring albums...',
+        'AI is discovering hidden gems...',
+        'AI is evaluating track moods...',
+        'AI is considering tempo and energy...',
+        'AI is finding thematic connections...',
+        'AI is looking for complementary sounds...',
+        'AI is balancing familiar and fresh picks...',
+        'AI is thinking about playlist flow...',
+        'AI is ensuring variety across artists...',
+        'AI is checking for smooth transitions...',
+        'AI is refining the selection...',
+        'AI is curating the perfect mix...',
+        'AI is adding finishing touches...',
+        'AI is reviewing the final picks...',
+        'AI is almost there...',
+        'AI is wrapping up...',
+    ],
+
+    enqueue(step, message) {
+        // If we get a new step while on AI, stop the cycle
+        if (this.currentStep === 'ai_working' && step !== 'ai_working') {
+            this.stopAiCycle();
+        }
+
+        this.messages.push({ step, message });
+        if (!this.isProcessing) {
+            this.processNext();
+        }
+    },
+
+    // Mark as complete - will fire callback after queue drains
+    markComplete(data, callback) {
+        this.completeData = data;
+        this.onComplete = callback;
+        // If not processing, finish immediately
+        if (!this.isProcessing && this.messages.length === 0) {
+            this.finish();
+        }
+    },
+
+    processNext() {
+        if (this.messages.length === 0) {
+            this.isProcessing = false;
+            // If we have pending complete data, finish now
+            if (this.completeData && this.onComplete) {
+                this.finish();
+            }
+            return;
+        }
+
+        this.isProcessing = true;
+        const { step, message } = this.messages.shift();
+        this.currentStep = step;
+
+        if (this.onDisplay) {
+            this.onDisplay(message);
+        }
+
+        // Start AI message cycling if we're on the AI step
+        if (step === 'ai_working') {
+            this.startAiCycle();
+        }
+
+        // Wait minimum time before processing next
+        setTimeout(() => {
+            this.processNext();
+        }, this.minDisplayTime);
+    },
+
+    finish() {
+        const callback = this.onComplete;
+        const data = this.completeData;
+        this.reset();
+        if (callback && data) {
+            callback(data);
+        }
+    },
+
+    startAiCycle() {
+        this.aiCycleIndex = 0;
+        this.aiCycleInterval = setInterval(() => {
+            // Stop cycling when we reach the last message
+            if (this.aiCycleIndex >= this.aiMessages.length - 1) {
+                this.stopAiCycle();
+                return;
+            }
+            this.aiCycleIndex++;
+            if (this.onDisplay && this.currentStep === 'ai_working') {
+                this.onDisplay(this.aiMessages[this.aiCycleIndex]);
+            }
+        }, 4000);
+    },
+
+    stopAiCycle() {
+        if (this.aiCycleInterval) {
+            clearInterval(this.aiCycleInterval);
+            this.aiCycleInterval = null;
+        }
+    },
+
+    reset() {
+        this.messages = [];
+        this.currentStep = null;
+        this.isProcessing = false;
+        this.completeData = null;
+        this.onComplete = null;
+        this.stopAiCycle();
+    }
+};
+
+function generatePlaylistStream(request, onProgress, onComplete, onError) {
+    // Reset and configure progress queue
+    progressQueue.reset();
+    progressQueue.onDisplay = (message) => {
+        const substepEl = document.getElementById('loading-substep');
+        if (substepEl) {
+            substepEl.textContent = message;
+        }
+    };
+
+    // Use fetch with streaming for SSE (EventSource doesn't support POST)
+    fetch('/api/generate/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+    }).then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        function processStream() {
+            reader.read().then(({ done, value }) => {
+                if (done) return;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // Keep incomplete line in buffer
+
+                let currentEvent = null;
+                for (const line of lines) {
+                    if (line.startsWith('event: ')) {
+                        currentEvent = line.slice(7);
+                    } else if (line.startsWith('data: ') && currentEvent) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (currentEvent === 'progress') {
+                                progressQueue.enqueue(data.step, data.message);
+                            } else if (currentEvent === 'complete') {
+                                // Wait for queue to drain before completing
+                                progressQueue.markComplete(data, onComplete);
+                            } else if (currentEvent === 'error') {
+                                progressQueue.reset();
+                                onError(new Error(data.message));
+                            }
+                        } catch {
+                            // Ignore parse errors
+                        }
+                        currentEvent = null;
+                    }
+                }
+
+                processStream();
+            }).catch(err => {
+                progressQueue.reset();
+                onError(err);
+            });
+        }
+
+        processStream();
+    }).catch(err => {
+        progressQueue.reset();
+        onError(err);
+    });
+}
+
 async function savePlaylist(name, ratingKeys) {
     return apiCall('/playlist', {
         method: 'POST',
@@ -439,6 +634,7 @@ function setLoading(loading, message = 'Loading...', substeps = null) {
     }
 
     overlay.classList.toggle('hidden', !loading);
+    document.body.classList.toggle('no-scroll', loading);
     messageEl.textContent = message;
 
     if (substepEl) {
@@ -453,7 +649,7 @@ function setLoading(loading, message = 'Loading...', substeps = null) {
                     substepEl.textContent = substeps[stepIndex];
                 }
                 // Stay on last step until done
-            }, 2500); // Change message every 2.5 seconds
+            }, 2000); // Change message every 2 seconds
         } else {
             substepEl.textContent = '';
         }
@@ -486,6 +682,47 @@ function showSuccess(message) {
 
 function hideSuccess() {
     document.getElementById('success-toast').classList.add('hidden');
+}
+
+function showSuccessModal(name, trackCount, playlistUrl) {
+    const modal = document.getElementById('success-modal');
+    const summary = document.getElementById('success-modal-summary');
+    const openBtn = document.getElementById('open-in-plex-btn');
+
+    summary.textContent = `"${name}" with ${trackCount} track${trackCount !== 1 ? 's' : ''} has been added to your Plex library.`;
+
+    if (playlistUrl) {
+        openBtn.href = playlistUrl;
+        openBtn.style.display = '';
+    } else {
+        openBtn.style.display = 'none';
+    }
+
+    modal.classList.remove('hidden');
+    document.body.classList.add('no-scroll');
+}
+
+function hideSuccessModal() {
+    document.getElementById('success-modal').classList.add('hidden');
+    document.body.classList.remove('no-scroll');
+
+    // Reset state for next playlist
+    state.step = 'input';
+    state.prompt = '';
+    state.seedTrack = null;
+    state.dimensions = [];
+    state.selectedDimensions = [];
+    state.additionalNotes = '';
+    state.selectedGenres = [];
+    state.selectedDecades = [];
+    state.playlist = [];
+    state.playlistName = '';
+    state.tokenCount = 0;
+    state.estimatedCost = 0;
+    state.sessionTokens = 0;
+    state.sessionCost = 0;
+    document.getElementById('prompt-input').value = '';
+    updateStep();
 }
 
 // =============================================================================
@@ -603,6 +840,9 @@ function setupEventListeners() {
 
     // Save settings
     document.getElementById('save-settings-btn').addEventListener('click', handleSaveSettings);
+
+    // Success modal - Start New Playlist
+    document.getElementById('new-playlist-btn').addEventListener('click', hideSuccessModal);
 }
 
 async function handleAnalyzePrompt() {
@@ -817,35 +1057,40 @@ async function handleGenerate() {
         }
     }
 
-    const generationSteps = [
-        'Fetching tracks from library...',
-        'Applying filters...',
-        'Sending tracks to AI...',
-        'AI is curating your playlist...',
-        'Processing selections...',
-    ];
-    setLoading(true, 'Generating playlist...', generationSteps);
+    setLoading(true, 'Generating playlist...');
+    const substepEl = document.getElementById('loading-substep');
 
-    try {
-        const response = await generatePlaylist(request);
+    generatePlaylistStream(
+        request,
+        // onProgress
+        (data) => {
+            if (substepEl && data.message) {
+                substepEl.textContent = data.message;
+            }
+        },
+        // onComplete
+        (response) => {
+            // Add generation costs to session totals
+            state.sessionTokens += response.token_count || 0;
+            state.sessionCost += response.estimated_cost || 0;
 
-        // Add generation costs to session totals
-        state.sessionTokens += response.token_count || 0;
-        state.sessionCost += response.estimated_cost || 0;
+            state.playlist = response.tracks;
+            state.tokenCount = state.sessionTokens;
+            state.estimatedCost = state.sessionCost;
+            state.playlistName = generatePlaylistName();
 
-        state.playlist = response.tracks;
-        state.tokenCount = state.sessionTokens;  // Total tokens for display
-        state.estimatedCost = state.sessionCost;  // Total cost for display
-        state.playlistName = generatePlaylistName();
-
-        state.step = 'results';
-        updateStep();
-        updatePlaylist();
-    } catch (error) {
-        showError(error.message);
-    } finally {
-        setLoading(false);
-    }
+            state.step = 'results';
+            updateStep();
+            updatePlaylist();
+            window.scrollTo(0, 0);
+            setLoading(false);
+        },
+        // onError
+        (error) => {
+            showError(error.message);
+            setLoading(false);
+        }
+    );
 }
 
 function generatePlaylistName() {
@@ -883,28 +1128,8 @@ async function handleSavePlaylist() {
         const response = await savePlaylist(name, ratingKeys);
 
         if (response.success) {
-            if (response.tracks_skipped > 0) {
-                showSuccess(`Playlist saved to Plex! (${response.tracks_added} tracks added, ${response.tracks_skipped} skipped)`);
-            } else {
-                showSuccess('Playlist saved to Plex!');
-            }
-            // Reset state for next playlist
-            state.step = 'input';
-            state.prompt = '';
-            state.seedTrack = null;
-            state.dimensions = [];
-            state.selectedDimensions = [];
-            state.additionalNotes = '';
-            state.selectedGenres = [];
-            state.selectedDecades = [];
-            state.playlist = [];
-            state.playlistName = '';
-            state.tokenCount = 0;
-            state.estimatedCost = 0;
-            state.sessionTokens = 0;
-            state.sessionCost = 0;
-            document.getElementById('prompt-input').value = '';
-            updateStep();
+            const trackCount = response.tracks_added || state.playlist.length;
+            showSuccessModal(name, trackCount, response.playlist_url);
         } else {
             showError(response.error || 'Failed to save playlist');
         }
@@ -1011,3 +1236,4 @@ document.addEventListener('DOMContentLoaded', () => {
 // Export for global access
 window.hideError = hideError;
 window.hideSuccess = hideSuccess;
+window.hideSuccessModal = hideSuccessModal;

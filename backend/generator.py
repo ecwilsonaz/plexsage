@@ -1,13 +1,174 @@
 """Playlist generation with library validation."""
 
+import json
 import logging
 import random
+from collections.abc import Generator
 
 from backend.llm_client import get_llm_client
 from backend.models import GenerateResponse, Track
-from backend.plex_client import PlexQueryError, get_plex_client
+from backend.plex_client import PlexQueryError, get_plex_client, get_track_cache
 
 logger = logging.getLogger(__name__)
+
+
+def generate_playlist_stream(
+    prompt: str | None = None,
+    seed_track: Track | None = None,
+    selected_dimensions: list[str] | None = None,
+    additional_notes: str | None = None,
+    genres: list[str] | None = None,
+    decades: list[str] | None = None,
+    track_count: int = 25,
+    exclude_live: bool = True,
+    min_rating: int = 0,
+    max_tracks_to_ai: int = 500,
+) -> Generator[str, None, None]:
+    """Generate a playlist with streaming progress updates.
+
+    Yields SSE-formatted events with progress updates and final result.
+    """
+    def emit(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+    try:
+        logger.info("Starting playlist generation (streaming)")
+        llm_client = get_llm_client()
+        plex_client = get_plex_client()
+
+        if not llm_client:
+            yield emit("error", {"message": "LLM client not initialized"})
+            return
+        if not plex_client:
+            yield emit("error", {"message": "Plex client not initialized"})
+            return
+
+        track_cache = get_track_cache()
+
+        # Step 1: Check cache or fetch tracks
+        cached_tracks = track_cache.get(genres, decades, exclude_live, min_rating)
+
+        if cached_tracks is not None:
+            yield emit("progress", {"step": "cache_hit", "message": "Using cached library results..."})
+            filtered_tracks = cached_tracks
+            logger.info("Using %d cached tracks", len(filtered_tracks))
+        else:
+            yield emit("progress", {"step": "fetching", "message": "Fetching tracks from library..."})
+
+            logger.info("Fetching tracks with filters: genres=%s, decades=%s, min_rating=%s", genres, decades, min_rating)
+            try:
+                filtered_tracks = plex_client.get_tracks_by_filters(
+                    genres=genres,
+                    decades=decades,
+                    exclude_live=exclude_live,
+                    min_rating=min_rating,
+                )
+                # Cache for potential future use
+                track_cache.set(genres, decades, exclude_live, min_rating, filtered_tracks)
+            except PlexQueryError as e:
+                yield emit("error", {"message": f"Plex server error: {e}"})
+                return
+
+            logger.info("Found %d tracks matching filters", len(filtered_tracks))
+
+        if not filtered_tracks:
+            yield emit("error", {"message": "No tracks match the selected filters. Try broadening your selection."})
+            return
+
+        # Step 2: Apply limits
+        yield emit("progress", {"step": "filtering", "message": f"Found {len(filtered_tracks)} matching tracks..."})
+
+        if max_tracks_to_ai > 0 and len(filtered_tracks) > max_tracks_to_ai:
+            logger.info("Sampling %d tracks from %d", max_tracks_to_ai, len(filtered_tracks))
+            filtered_tracks = random.sample(filtered_tracks, max_tracks_to_ai)
+        elif len(filtered_tracks) > 2000:
+            logger.info("Hard cap: sampling 2000 tracks from %d", len(filtered_tracks))
+            filtered_tracks = random.sample(filtered_tracks, 2000)
+
+        # Step 3: Build track list
+        yield emit("progress", {"step": "preparing", "message": f"Preparing {len(filtered_tracks)} tracks for AI..."})
+
+        track_list = "\n".join(
+            f"{i+1}. {t.artist} - {t.title} ({t.album}, {t.year or 'Unknown year'})"
+            for i, t in enumerate(filtered_tracks)
+        )
+
+        # Build the generation prompt
+        generation_parts = []
+
+        if prompt:
+            generation_parts.append(f"User's request: {prompt}")
+
+        if seed_track:
+            generation_parts.append(
+                f"Seed track: {seed_track.title} by {seed_track.artist} "
+                f"(from {seed_track.album}, {seed_track.year or 'Unknown year'})"
+            )
+            if selected_dimensions:
+                generation_parts.append(f"Explore these dimensions: {', '.join(selected_dimensions)}")
+
+        if additional_notes:
+            generation_parts.append(f"Additional notes: {additional_notes}")
+
+        generation_parts.append(f"\nSelect {track_count} tracks from this library:\n{track_list}")
+
+        generation_prompt = "\n\n".join(generation_parts)
+
+        # Step 4: Call LLM
+        yield emit("progress", {"step": "ai_working", "message": "AI is curating your playlist..."})
+
+        logger.info("Calling LLM with prompt length: %d chars", len(generation_prompt))
+        response = llm_client.generate(generation_prompt, GENERATION_SYSTEM)
+        logger.info("LLM response received: %d input, %d output tokens", response.input_tokens, response.output_tokens)
+
+        # Step 5: Parse response
+        yield emit("progress", {"step": "parsing", "message": "Parsing AI selections..."})
+
+        track_selections = llm_client.parse_json_response(response)
+
+        if not isinstance(track_selections, list):
+            yield emit("error", {"message": "LLM returned invalid track selection format"})
+            return
+
+        # Step 6: Match tracks
+        yield emit("progress", {"step": "matching", "message": f"Matching {len(track_selections)} selections to library..."})
+
+        matched_tracks: list[Track] = []
+        used_keys: set[str] = set()
+
+        if seed_track:
+            used_keys.add(seed_track.rating_key)
+
+        for selection in track_selections:
+            if len(matched_tracks) >= track_count:
+                break
+
+            artist = selection.get("artist", "")
+            title = selection.get("title", "")
+
+            for track in filtered_tracks:
+                if track.rating_key in used_keys:
+                    continue
+
+                if _tracks_match(artist, title, track):
+                    matched_tracks.append(track)
+                    used_keys.add(track.rating_key)
+                    break
+
+        # Step 7: Complete
+        yield emit("progress", {"step": "complete", "message": "Playlist ready!"})
+
+        result = GenerateResponse(
+            tracks=matched_tracks,
+            token_count=response.total_tokens,
+            estimated_cost=response.estimated_cost(),
+        )
+
+        yield emit("complete", result.model_dump(mode="json"))
+
+    except Exception as e:
+        logger.exception("Error during playlist generation")
+        yield emit("error", {"message": str(e)})
 
 
 GENERATION_SYSTEM = """You are a music curator creating a playlist from a user's music library.

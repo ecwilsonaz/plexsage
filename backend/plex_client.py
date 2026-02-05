@@ -1,7 +1,9 @@
 """Plex server client for library queries and playlist management."""
 
+import hashlib
 import logging
 import re
+import time
 from typing import Any
 
 from plexapi.exceptions import NotFound, Unauthorized
@@ -12,6 +14,91 @@ from unidecode import unidecode
 from backend.models import Track
 
 logger = logging.getLogger(__name__)
+
+
+class TrackCache:
+    """In-memory cache for filtered track results with TTL."""
+
+    def __init__(self, ttl_seconds: int = 300, max_entries: int = 50):
+        """Initialize cache with TTL in seconds (default 5 minutes) and max entries."""
+        self._cache: dict[str, tuple[list[Track], float]] = {}
+        self._ttl = ttl_seconds
+        self._max_entries = max_entries
+
+    def _make_key(
+        self,
+        genres: list[str] | None,
+        decades: list[str] | None,
+        exclude_live: bool,
+        min_rating: int,
+    ) -> str:
+        """Create deterministic cache key from filter params."""
+        key_data = {
+            "genres": sorted(genres or []),
+            "decades": sorted(decades or []),
+            "exclude_live": exclude_live,
+            "min_rating": min_rating,
+        }
+        return hashlib.md5(str(key_data).encode()).hexdigest()
+
+    def _evict_oldest(self) -> None:
+        """Evict the oldest entry from the cache."""
+        if not self._cache:
+            return
+        oldest_key = min(self._cache.keys(), key=lambda k: self._cache[k][1])
+        del self._cache[oldest_key]
+        logger.info("Evicted oldest cache entry (key=%s)", oldest_key[:8])
+
+    def get(
+        self,
+        genres: list[str] | None,
+        decades: list[str] | None,
+        exclude_live: bool,
+        min_rating: int,
+    ) -> list[Track] | None:
+        """Get cached tracks if available and not expired."""
+        key = self._make_key(genres, decades, exclude_live, min_rating)
+        if key in self._cache:
+            tracks, timestamp = self._cache[key]
+            if time.time() - timestamp < self._ttl:
+                logger.info("Cache hit for filters (key=%s)", key[:8])
+                return tracks
+            else:
+                logger.info("Cache expired for filters (key=%s)", key[:8])
+                del self._cache[key]
+        return None
+
+    def set(
+        self,
+        genres: list[str] | None,
+        decades: list[str] | None,
+        exclude_live: bool,
+        min_rating: int,
+        tracks: list[Track],
+    ) -> None:
+        """Cache tracks with current timestamp."""
+        key = self._make_key(genres, decades, exclude_live, min_rating)
+
+        # Evict oldest if at capacity (and not updating existing key)
+        if key not in self._cache and len(self._cache) >= self._max_entries:
+            self._evict_oldest()
+
+        self._cache[key] = (tracks, time.time())
+        logger.info("Cached %d tracks (key=%s)", len(tracks), key[:8])
+
+    def clear(self) -> None:
+        """Clear all cached entries."""
+        self._cache.clear()
+        logger.info("Track cache cleared")
+
+
+# Global cache instance
+_track_cache = TrackCache()
+
+
+def get_track_cache() -> TrackCache:
+    """Get the global track cache instance."""
+    return _track_cache
 
 
 class PlexQueryError(Exception):
@@ -123,6 +210,12 @@ class PlexClient:
     def is_connected(self) -> bool:
         """Check if connected to Plex server with valid library."""
         return self._server is not None and self._library is not None
+
+    def get_machine_identifier(self) -> str | None:
+        """Get the Plex server's machine identifier."""
+        if not self._server:
+            return None
+        return self._server.machineIdentifier
 
     def get_error(self) -> str | None:
         """Get the last error message if any."""
@@ -423,9 +516,20 @@ class PlexClient:
 
             # Create playlist
             playlist = self._server.createPlaylist(name, items=items)
+
+            # Build the Plex web app URL for the playlist (uses local server URL)
+            playlist_url = None
+            machine_id = self.get_machine_identifier()
+            if machine_id:
+                playlist_url = (
+                    f"{self.url}/web/index.html#!/server/{machine_id}"
+                    f"/playlist?key=%2Fplaylists%2F{playlist.ratingKey}"
+                )
+
             return {
                 "success": True,
                 "playlist_id": str(playlist.ratingKey),
+                "playlist_url": playlist_url,
                 "tracks_added": len(items),
                 "tracks_skipped": len(skipped_keys),
             }

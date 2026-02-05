@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from starlette.responses import StreamingResponse
 import httpx
 
 from backend.config import get_config, update_config_values
@@ -29,7 +30,7 @@ from backend.models import (
     Track,
     UpdateConfigRequest,
 )
-from backend.plex_client import get_plex_client, init_plex_client
+from backend.plex_client import get_plex_client, init_plex_client, get_track_cache
 from backend.llm_client import (
     get_llm_client,
     init_llm_client,
@@ -37,7 +38,7 @@ from backend.llm_client import (
     estimate_cost_for_model,
 )
 from backend.analyzer import analyze_prompt as do_analyze_prompt, analyze_track as do_analyze_track
-from backend.generator import generate_playlist as do_generate_playlist
+from backend.generator import generate_playlist as do_generate_playlist, generate_playlist_stream
 
 
 @asynccontextmanager
@@ -255,17 +256,32 @@ async def preview_filters(request: FilterPreviewRequest) -> FilterPreviewRespons
     """Preview filter results with track count and cost estimate."""
     plex_client = get_plex_client()
     config = get_config()
+    track_cache = get_track_cache()
 
     if not plex_client or not plex_client.is_connected():
         raise HTTPException(status_code=503, detail="Plex not connected")
 
-    # Get filtered track count
-    matching_tracks = await asyncio.to_thread(
-        plex_client.get_filtered_track_count,
-        genres=request.genres if request.genres else None,
-        decades=request.decades if request.decades else None,
-        min_rating=request.min_rating,
-    )
+    genres = request.genres if request.genres else None
+    decades = request.decades if request.decades else None
+    exclude_live = True  # Always exclude live for preview/generate
+    min_rating = request.min_rating
+
+    # Check cache first
+    cached_tracks = track_cache.get(genres, decades, exclude_live, min_rating)
+
+    if cached_tracks is not None:
+        matching_tracks = len(cached_tracks)
+    else:
+        # Fetch full tracks and cache them (so generate can reuse)
+        tracks = await asyncio.to_thread(
+            plex_client.get_tracks_by_filters,
+            genres=genres,
+            decades=decades,
+            exclude_live=exclude_live,
+            min_rating=min_rating,
+        )
+        track_cache.set(genres, decades, exclude_live, min_rating, tracks)
+        matching_tracks = len(tracks)
 
     # Calculate how many tracks will actually be sent to AI
     if matching_tracks <= 0:
@@ -341,6 +357,52 @@ async def generate_playlist(request: GenerateRequest) -> GenerateResponse:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+
+
+@app.post("/api/generate/stream")
+async def generate_playlist_sse(request: GenerateRequest) -> StreamingResponse:
+    """Generate a playlist with streaming progress updates."""
+    plex_client = get_plex_client()
+    llm_client = get_llm_client()
+
+    if not plex_client or not plex_client.is_connected():
+        raise HTTPException(status_code=503, detail="Plex not connected")
+    if not llm_client:
+        raise HTTPException(status_code=503, detail="LLM not configured")
+
+    # Get seed track if provided
+    seed_track = None
+    selected_dimensions = None
+    if request.seed_track:
+        seed_track = await asyncio.to_thread(
+            plex_client.get_track_by_key, request.seed_track.rating_key
+        )
+        if not seed_track:
+            raise HTTPException(status_code=404, detail="Seed track not found")
+        selected_dimensions = request.seed_track.selected_dimensions
+
+    def event_stream():
+        yield from generate_playlist_stream(
+            prompt=request.prompt,
+            seed_track=seed_track,
+            selected_dimensions=selected_dimensions,
+            additional_notes=request.additional_notes,
+            genres=request.genres,
+            decades=request.decades,
+            track_count=request.track_count,
+            exclude_live=request.exclude_live,
+            min_rating=request.min_rating,
+            max_tracks_to_ai=request.max_tracks_to_ai,
+        )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 # =============================================================================

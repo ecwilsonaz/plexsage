@@ -261,7 +261,7 @@ select {
     width: 100%;
     padding: var(--spacing-sm) var(--spacing-md);
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text-primary);
     font-size: var(--font-size-base);
@@ -745,9 +745,11 @@ textarea {
 
 .settings-actions {
     margin-top: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
 }
 
 .library-stats {
+    margin-top: var(--spacing-lg);
     font-size: var(--font-size-sm);
 }
 
@@ -764,15 +766,25 @@ textarea {
     bottom: 0;
     background: rgba(26, 26, 26, 0.95);
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: var(--spacing-md);
     z-index: 1000;
 }
 
 .loading-overlay.hidden {
     display: none;
+}
+
+.loading-modal-content {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    text-align: center;
+    min-width: 280px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-md);
 }
 
 .spinner {
@@ -794,8 +806,100 @@ textarea {
     min-height: 1.5em;
     text-align: center;
     font-style: italic;
-    margin-top: var(--spacing-xs);
-    opacity: 0.8;
+    margin-top: calc(-1 * var(--spacing-sm));
+}
+
+/* Success Modal */
+.success-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(26, 26, 26, 0.95);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn var(--transition-normal);
+}
+
+.success-modal.hidden {
+    display: none;
+}
+
+.success-modal-content {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    text-align: center;
+    max-width: 400px;
+    width: 90%;
+    animation: scaleIn var(--transition-normal);
+}
+
+@keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.success-icon {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto var(--spacing-lg);
+    background: var(--success);
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.success-icon::after {
+    content: '';
+    width: 20px;
+    height: 32px;
+    border: 4px solid var(--bg-primary);
+    border-top: none;
+    border-left: none;
+    transform: rotate(45deg) translateY(-4px);
+}
+
+.success-modal-content h2 {
+    font-size: var(--font-size-xl);
+    margin-bottom: var(--spacing-sm);
+    color: var(--text-primary);
+}
+
+.success-modal-content p {
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-lg);
+}
+
+.success-modal-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.success-modal-actions .btn {
+    width: 100%;
+}
+
+/* Open in Plex button */
+.btn-plex {
+    text-decoration: none;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    gap: var(--spacing-sm);
+}
+.btn-plex:hover {
+    background: var(--bg-hover);
+}
+.btn-plex svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
 }
 
 /* Toast Notifications */
@@ -879,6 +983,10 @@ textarea {
 /* Utility Classes */
 .hidden {
     display: none !important;
+}
+
+body.no-scroll {
+    overflow: hidden;
 }
 
 /* Scrollbar Styling */

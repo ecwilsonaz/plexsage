@@ -251,6 +251,7 @@ class SavePlaylistResponse(BaseModel):
 
     success: bool
     playlist_id: str | None = None
+    playlist_url: str | None = None
     error: str | None = None
     tracks_added: int | None = None
     tracks_skipped: int | None = None
