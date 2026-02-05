@@ -159,6 +159,8 @@ def load_config(config_path: Path | None = None) -> AppConfig:
         api_key = openai_key
     elif provider == "gemini":
         api_key = gemini_key
+    elif provider == "custom":
+        api_key = os.environ.get("CUSTOM_LLM_API_KEY") or llm_yaml.get("api_key", "")
     else:
         api_key = llm_yaml.get("api_key", "")
 

@@ -245,6 +245,7 @@ services:
 | `OLLAMA_URL` | No | Ollama server URL (default: `http://localhost:11434`) |
 | `OLLAMA_CONTEXT_WINDOW` | No | Override detected context window for Ollama (default: 32768) |
 | `CUSTOM_LLM_URL` | No | Custom OpenAI-compatible API base URL |
+| `CUSTOM_LLM_API_KEY` | No | API key for custom provider (if required) |
 | `CUSTOM_CONTEXT_WINDOW` | No | Context window size for custom provider (default: 32768) |
 
 ### Web UI Configuration
