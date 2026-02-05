@@ -20,7 +20,7 @@ Describe what you want in natural language, refine filters, and generate a playl
 ### Seed-Based Flow
 Start from a song you love and explore its musical dimensions:
 
-<!-- TODO: Add seed-based demo video -->
+![Seed-based flow demo](https://github.com/user-attachments/assets/0812a847-7d4a-4bf6-8d45-581a137fd71f)
 
 ---
 
