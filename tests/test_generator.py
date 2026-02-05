@@ -35,20 +35,22 @@ class TestPlaylistGeneration:
                 mock_plex_client.get_tracks_by_filters.return_value = mock_plex_tracks[:5]
                 mock_plex.return_value = mock_plex_client
 
-                result = generate_playlist(
-                    prompt="90s alternative",
-                    genres=["Alternative", "Rock"],
-                    decades=["1990s"],
-                    track_count=25,
-                    exclude_live=True
-                )
-
-                # All returned tracks should be from the library
-                for track in result.tracks:
-                    assert any(
-                        t.rating_key == track.rating_key
-                        for t in mock_plex_tracks
+                # Mock cache to be empty so we use Plex fallback
+                with patch("backend.generator.library_cache.has_cached_tracks", return_value=False):
+                    result = generate_playlist(
+                        prompt="90s alternative",
+                        genres=["Alternative", "Rock"],
+                        decades=["1990s"],
+                        track_count=25,
+                        exclude_live=True
                     )
+
+                    # All returned tracks should be from the library
+                    for track in result.tracks:
+                        assert any(
+                            t.rating_key == track.rating_key
+                            for t in mock_plex_tracks
+                        )
 
     def test_generate_handles_empty_filter_results(self, mocker):
         """Should handle case when no tracks match filters."""
@@ -60,14 +62,16 @@ class TestPlaylistGeneration:
                 mock_plex_client.get_tracks_by_filters.return_value = []
                 mock_plex.return_value = mock_plex_client
 
-                with pytest.raises(ValueError, match="No tracks"):
-                    generate_playlist(
-                        prompt="nonexistent genre",
-                        genres=["Nonexistent"],
-                        decades=["1800s"],
-                        track_count=25,
-                        exclude_live=True
-                    )
+                # Mock cache to be empty so we use Plex fallback
+                with patch("backend.generator.library_cache.has_cached_tracks", return_value=False):
+                    with pytest.raises(ValueError, match="No tracks"):
+                        generate_playlist(
+                            prompt="nonexistent genre",
+                            genres=["Nonexistent"],
+                            decades=["1800s"],
+                            track_count=25,
+                            exclude_live=True
+                        )
 
     def test_fuzzy_matching_finds_similar_titles(self, mocker, mock_plex_tracks):
         """Should fuzzy match LLM responses to library tracks."""
@@ -96,17 +100,19 @@ class TestPlaylistGeneration:
                 mock_plex_client.get_tracks_by_filters.return_value = mock_plex_tracks[:5]
                 mock_plex.return_value = mock_plex_client
 
-                result = generate_playlist(
-                    prompt="radiohead",
-                    genres=["Alternative"],
-                    decades=["1990s"],
-                    track_count=25,
-                    exclude_live=True
-                )
+                # Mock cache to be empty so we use Plex fallback
+                with patch("backend.generator.library_cache.has_cached_tracks", return_value=False):
+                    result = generate_playlist(
+                        prompt="radiohead",
+                        genres=["Alternative"],
+                        decades=["1990s"],
+                        track_count=25,
+                        exclude_live=True
+                    )
 
-                # Should still match the track despite slight title difference
-                # (implementation will use fuzzy matching)
-                assert len(result.tracks) >= 0  # May or may not match depending on threshold
+                    # Should still match the track despite slight title difference
+                    # (implementation will use fuzzy matching)
+                    assert len(result.tracks) >= 0  # May or may not match depending on threshold
 
 
 class TestTrackMatching:

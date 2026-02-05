@@ -388,6 +388,14 @@ async function fetchLibraryStats() {
     return apiCall('/library/stats');
 }
 
+async function fetchLibraryStatus() {
+    return apiCall('/library/status');
+}
+
+async function triggerLibrarySync() {
+    return apiCall('/library/sync', { method: 'POST' });
+}
+
 // =============================================================================
 // UI Updates
 // =============================================================================
@@ -605,26 +613,48 @@ function updateTrackLimitButtons() {
     });
 }
 
+// AbortController for cancelling in-flight filter preview requests
+let filterPreviewController = null;
+let filterPreviewLoadingTimeout = null;
+
 async function updateFilterPreview() {
+    console.log('[MediaSage] updateFilterPreview called');
     const previewTracks = document.getElementById('preview-tracks');
     const previewCost = document.getElementById('preview-cost');
 
-    // Show loading state immediately
-    previewTracks.innerHTML = '<span class="preview-spinner"></span> Counting...';
-    previewCost.textContent = '';
+    // Cancel any in-flight request
+    if (filterPreviewController) {
+        filterPreviewController.abort();
+    }
+    filterPreviewController = new AbortController();
+
+    // Clear any pending loading timeout
+    if (filterPreviewLoadingTimeout) {
+        clearTimeout(filterPreviewLoadingTimeout);
+    }
+
+    // Only show loading state if request takes longer than 150ms
+    filterPreviewLoadingTimeout = setTimeout(() => {
+        previewTracks.innerHTML = '<span class="preview-spinner"></span> Counting...';
+        previewCost.textContent = '';
+    }, 150);
 
     try {
+        const requestBody = {
+            genres: state.selectedGenres,
+            decades: state.selectedDecades,
+            track_count: state.trackCount,
+            max_tracks_to_ai: state.maxTracksToAI,
+            min_rating: state.minRating,
+            exclude_live: state.excludeLive,
+        };
+        console.log('[MediaSage] Filter preview request:', requestBody);
+
         const response = await fetch('/api/filter/preview', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                genres: state.selectedGenres,
-                decades: state.selectedDecades,
-                track_count: state.trackCount,
-                max_tracks_to_ai: state.maxTracksToAI,
-                min_rating: state.minRating,
-                exclude_live: state.excludeLive,
-            }),
+            body: JSON.stringify(requestBody),
+            signal: filterPreviewController.signal,
         });
 
         if (!response.ok) {
@@ -632,6 +662,10 @@ async function updateFilterPreview() {
         }
 
         const data = await response.json();
+        console.log('[MediaSage] Filter preview response:', data);
+
+        // Clear loading timeout - response arrived fast
+        clearTimeout(filterPreviewLoadingTimeout);
 
         // Cache the matching_tracks for local recalculation
         state.lastFilterPreview = {
@@ -641,6 +675,14 @@ async function updateFilterPreview() {
         // Update display
         updateFilterPreviewDisplay(data.matching_tracks, data.tracks_to_send, data.estimated_cost);
     } catch (error) {
+        // Clear loading timeout on error too
+        clearTimeout(filterPreviewLoadingTimeout);
+
+        // Ignore abort errors - they're expected when cancelling
+        if (error.name === 'AbortError') {
+            console.log('[MediaSage] Filter preview request cancelled');
+            return;
+        }
         console.error('Filter preview error:', error);
         previewTracks.textContent = '-- matching tracks';
         previewCost.textContent = 'Est. cost: --';
@@ -1081,6 +1123,11 @@ function updateConfigRequiredUI() {
 }
 
 function updateFooter() {
+    const footerVersion = document.getElementById('footer-version');
+    if (footerVersion && state.config?.version) {
+        footerVersion.textContent = `v${state.config.version}`;
+    }
+
     const footerModel = document.getElementById('footer-model');
     if (footerModel && state.config) {
         if (state.config.llm_configured) {
@@ -1209,6 +1256,185 @@ function hideSuccessModal() {
     state.sessionCost = 0;
     document.getElementById('prompt-input').value = '';
     updateStep();
+}
+
+// =============================================================================
+// Library Cache Management
+// =============================================================================
+
+let syncPollInterval = null;
+
+function showSyncModal() {
+    const modal = document.getElementById('sync-modal');
+    modal.classList.remove('hidden');
+    document.body.classList.add('no-scroll');
+}
+
+function hideSyncModal() {
+    const modal = document.getElementById('sync-modal');
+    modal.classList.add('hidden');
+    document.body.classList.remove('no-scroll');
+}
+
+function updateSyncProgress(phase, current, total) {
+    const fill = document.getElementById('sync-progress-fill');
+    const text = document.getElementById('sync-progress-text');
+
+    if (phase === 'fetching_albums') {
+        // Indeterminate state - fetching album genres
+        fill.style.width = '0%';
+        text.textContent = 'Fetching album genres...';
+    } else if (phase === 'fetching') {
+        // Indeterminate state - fetching tracks from Plex
+        fill.style.width = '0%';
+        text.textContent = 'Fetching tracks from Plex...';
+    } else if (phase === 'processing') {
+        // Processing phase - show progress
+        const percent = total > 0 ? (current / total) * 100 : 0;
+        fill.style.width = `${percent}%`;
+        text.textContent = `${current.toLocaleString()} / ${total.toLocaleString()} tracks`;
+    } else {
+        // Unknown or null phase - show generic message
+        fill.style.width = '0%';
+        text.textContent = 'Syncing...';
+    }
+}
+
+function formatRelativeTime(isoString) {
+    if (!isoString) return 'Never';
+
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} min${diffMins !== 1 ? 's' : ''} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+
+    return date.toLocaleDateString();
+}
+
+function updateFooterLibraryStatus(status) {
+    const container = document.getElementById('footer-library-status');
+    const trackCount = document.getElementById('footer-track-count');
+    const syncTime = document.getElementById('footer-sync-time');
+
+    if (!status || status.track_count === 0) {
+        container.classList.add('hidden');
+        return;
+    }
+
+    container.classList.remove('hidden');
+    trackCount.textContent = `${status.track_count.toLocaleString()} tracks`;
+
+    if (status.is_syncing) {
+        syncTime.textContent = 'Syncing...';
+    } else {
+        syncTime.textContent = formatRelativeTime(status.synced_at);
+    }
+}
+
+async function checkLibraryStatus() {
+    try {
+        const status = await fetchLibraryStatus();
+
+        // Update footer status
+        updateFooterLibraryStatus(status);
+
+        // If cache is empty and Plex is connected, trigger first-time sync
+        if (status.track_count === 0 && status.plex_connected && !status.is_syncing) {
+            await startFirstTimeSync();
+        } else if (status.is_syncing) {
+            // Already syncing - show modal and poll
+            showSyncModal();
+            if (status.sync_progress) {
+                updateSyncProgress(status.sync_progress.phase, status.sync_progress.current, status.sync_progress.total);
+            }
+            startSyncPolling();
+        }
+
+        return status;
+    } catch (error) {
+        console.error('Failed to check library status:', error);
+        return null;
+    }
+}
+
+async function startFirstTimeSync() {
+    showSyncModal();
+    updateSyncProgress('fetching_albums', 0, 0);
+
+    try {
+        await triggerLibrarySync();
+        // Always poll for progress
+        startSyncPolling();
+    } catch (error) {
+        console.error('Sync failed:', error);
+        hideSyncModal();
+        showError('Failed to sync library: ' + error.message);
+    }
+}
+
+function startSyncPolling() {
+    if (syncPollInterval) return;
+
+    syncPollInterval = setInterval(async () => {
+        try {
+            const status = await fetchLibraryStatus();
+
+            if (status.is_syncing && status.sync_progress) {
+                updateSyncProgress(status.sync_progress.phase, status.sync_progress.current, status.sync_progress.total);
+            } else if (!status.is_syncing) {
+                // Sync completed
+                stopSyncPolling();
+                hideSyncModal();
+                updateFooterLibraryStatus(status);
+
+                if (status.error) {
+                    showError('Sync failed: ' + status.error);
+                }
+            }
+        } catch (error) {
+            console.error('Error polling sync status:', error);
+        }
+    }, 1000);
+}
+
+function stopSyncPolling() {
+    if (syncPollInterval) {
+        clearInterval(syncPollInterval);
+        syncPollInterval = null;
+    }
+}
+
+async function handleRefreshLibrary() {
+    try {
+        const status = await fetchLibraryStatus();
+
+        if (status.is_syncing) {
+            showSuccess('Sync already in progress');
+            return;
+        }
+
+        await triggerLibrarySync();
+        startSyncPolling();
+
+        // Update footer to show syncing
+        const syncTime = document.getElementById('footer-sync-time');
+        if (syncTime) {
+            syncTime.textContent = 'Syncing...';
+        }
+    } catch (error) {
+        if (error.message.includes('409')) {
+            showSuccess('Sync already in progress');
+        } else {
+            showError('Failed to start sync: ' + error.message);
+        }
+    }
 }
 
 // =============================================================================
@@ -1345,6 +1571,15 @@ function setupEventListeners() {
     document.getElementById('llm-provider').addEventListener('change', (e) => {
         showProviderSettings(e.target.value);
     });
+
+    // Library refresh link
+    const refreshLink = document.getElementById('footer-refresh-link');
+    if (refreshLink) {
+        refreshLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            handleRefreshLibrary();
+        });
+    }
 
     // Ollama URL change - trigger status check
     let ollamaUrlTimeout = null;
@@ -1803,16 +2038,24 @@ async function handleSaveSettings() {
 // Initialization
 // =============================================================================
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
     updateView();
     updateMode();
     updateStep();
 
     // Load initial config
-    loadSettings().catch(() => {
+    try {
+        await loadSettings();
+
+        // Check library cache status after config is loaded
+        if (state.config?.plex_connected) {
+            await checkLibraryStatus();
+        }
+    } catch (error) {
         // Settings will show as not configured
-    });
+        console.error('Initialization error:', error);
+    }
 });
 
 // Export for global access

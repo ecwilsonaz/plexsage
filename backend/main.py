@@ -23,15 +23,20 @@ from backend.models import (
     GenerateRequest,
     GenerateResponse,
     HealthResponse,
+    LibraryCacheStatusResponse,
     LibraryStatsResponse,
     GenreCount,
     DecadeCount,
     SavePlaylistRequest,
     SavePlaylistResponse,
+    SyncProgress,
+    SyncTriggerResponse,
     Track,
     UpdateConfigRequest,
 )
 from backend.plex_client import get_plex_client, init_plex_client
+from backend import library_cache
+from backend.version import get_version
 from backend.llm_client import (
     get_llm_client,
     init_llm_client,
@@ -136,6 +141,7 @@ async def get_configuration() -> ConfigResponse:
     provider_from_env = os.environ.get("LLM_PROVIDER") is not None
 
     return ConfigResponse(
+        version=get_version(),
         plex_url=config.plex.url,
         plex_connected=plex_client.is_connected() if plex_client else False,
         plex_token_set=bool(config.plex.token),
@@ -208,6 +214,7 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
     provider_from_env = os.environ.get("LLM_PROVIDER") is not None
 
     return ConfigResponse(
+        version=get_version(),
         plex_url=config.plex.url,
         plex_connected=plex_client.is_connected() if plex_client else False,
         plex_token_set=bool(config.plex.token),
@@ -267,6 +274,60 @@ async def ollama_model_info(
     if info is None:
         raise HTTPException(status_code=404, detail=f"Model '{model}' not found")
     return info
+
+
+# =============================================================================
+# Library Cache Endpoints
+# =============================================================================
+
+
+@app.get("/api/library/status", response_model=LibraryCacheStatusResponse)
+async def get_library_status() -> LibraryCacheStatusResponse:
+    """Get library cache status for UI polling."""
+    plex_client = get_plex_client()
+
+    # Get sync state from cache module
+    state = library_cache.get_sync_state()
+
+    # Build response
+    sync_progress = None
+    if state["sync_progress"]:
+        sync_progress = SyncProgress(
+            phase=state["sync_progress"]["phase"],
+            current=state["sync_progress"]["current"],
+            total=state["sync_progress"]["total"],
+        )
+
+    return LibraryCacheStatusResponse(
+        track_count=state["track_count"],
+        synced_at=state["synced_at"],
+        is_syncing=state["is_syncing"],
+        sync_progress=sync_progress,
+        error=state["error"],
+        plex_connected=plex_client.is_connected() if plex_client else False,
+    )
+
+
+@app.post("/api/library/sync", response_model=SyncTriggerResponse)
+async def trigger_library_sync() -> SyncTriggerResponse:
+    """Trigger library sync from Plex.
+
+    Always starts sync in background so progress can be polled.
+    """
+    plex_client = get_plex_client()
+    if not plex_client or not plex_client.is_connected():
+        raise HTTPException(status_code=503, detail="Plex not connected")
+
+    # Check if already syncing
+    progress = library_cache.get_sync_progress()
+    if progress["is_syncing"]:
+        raise HTTPException(status_code=409, detail="Sync already in progress")
+
+    # Always run sync in background so progress can be polled
+    asyncio.create_task(
+        asyncio.to_thread(library_cache.sync_library, plex_client)
+    )
+    return SyncTriggerResponse(started=True, blocking=False)
 
 
 # =============================================================================
@@ -351,28 +412,40 @@ async def analyze_track(request: AnalyzeTrackRequest) -> AnalyzeTrackResponse:
 async def preview_filters(request: FilterPreviewRequest) -> FilterPreviewResponse:
     """Preview filter results with track count and cost estimate.
 
-    Uses count-only method for fast preview. Full track fetching is deferred
-    to the generate endpoint where the user expects a longer wait.
+    Uses local cache when available for instant response, falls back to
+    Plex query if cache is empty.
     """
     plex_client = get_plex_client()
     config = get_config()
-
-    if not plex_client or not plex_client.is_connected():
-        raise HTTPException(status_code=503, detail="Plex not connected")
 
     genres = request.genres if request.genres else None
     decades = request.decades if request.decades else None
     exclude_live = request.exclude_live
     min_rating = request.min_rating
 
-    # Use count-only method (no full track conversion) for fast preview
-    matching_tracks = await asyncio.to_thread(
-        plex_client.count_tracks_by_filters,
-        genres=genres,
-        decades=decades,
-        exclude_live=exclude_live,
-        min_rating=min_rating,
-    )
+    # Try cache first for instant response
+    matching_tracks = -1
+    if library_cache.has_cached_tracks():
+        matching_tracks = await asyncio.to_thread(
+            library_cache.count_tracks_by_filters,
+            genres=genres,
+            decades=decades,
+            min_rating=min_rating,
+            exclude_live=exclude_live,
+        )
+
+    # Fall back to Plex if cache is empty
+    if matching_tracks < 0:
+        if not plex_client or not plex_client.is_connected():
+            raise HTTPException(status_code=503, detail="Plex not connected")
+
+        matching_tracks = await asyncio.to_thread(
+            plex_client.count_tracks_by_filters,
+            genres=genres,
+            decades=decades,
+            exclude_live=exclude_live,
+            min_rating=min_rating,
+        )
 
     # Calculate how many tracks will actually be sent to AI
     if matching_tracks <= 0:
