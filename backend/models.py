@@ -89,11 +89,25 @@ class PlexConfig(BaseModel):
 class LLMConfig(BaseModel):
     """LLM provider settings."""
 
-    provider: Literal["anthropic", "openai", "gemini"]
-    api_key: str
+    provider: Literal["anthropic", "openai", "gemini", "ollama", "custom"]
+    api_key: str = ""  # Optional for local providers
     model_analysis: str
     model_generation: str
     smart_generation: bool = False
+    # Local provider settings
+    ollama_url: str = "http://localhost:11434"
+    ollama_context_window: int = 32768  # Detected from model, can be overridden
+    custom_url: str = ""
+    custom_context_window: int = 32768
+
+    @field_validator("ollama_context_window", "custom_context_window")
+    @classmethod
+    def validate_context_window(cls, v: int) -> int:
+        if v < 512:
+            raise ValueError("Context window must be at least 512 tokens")
+        if v > 2000000:
+            raise ValueError("Context window cannot exceed 2,000,000 tokens")
+        return v
 
 
 class DefaultsConfig(BaseModel):
@@ -274,6 +288,13 @@ class ConfigResponse(BaseModel):
     cost_per_million_input: float  # Cost per million input tokens for generation model
     cost_per_million_output: float  # Cost per million output tokens for generation model
     defaults: DefaultsConfig
+    # Local provider fields
+    ollama_url: str = "http://localhost:11434"
+    ollama_context_window: int = 32768
+    custom_url: str = ""
+    custom_context_window: int = 32768
+    is_local_provider: bool = False
+    provider_from_env: bool = False  # True if LLM_PROVIDER env var is overriding UI
 
 
 class UpdateConfigRequest(BaseModel):
@@ -286,6 +307,11 @@ class UpdateConfigRequest(BaseModel):
     llm_api_key: str | None = None
     model_analysis: str | None = None
     model_generation: str | None = None
+    # Local provider fields
+    ollama_url: str | None = None
+    ollama_context_window: int | None = None
+    custom_url: str | None = None
+    custom_context_window: int | None = None
 
 
 class HealthResponse(BaseModel):
@@ -301,3 +327,40 @@ class ErrorResponse(BaseModel):
 
     error: str
     detail: str | None = None
+
+
+# =============================================================================
+# Ollama API Models
+# =============================================================================
+
+
+class OllamaModel(BaseModel):
+    """A model available in Ollama."""
+
+    name: str
+    size: int = 0
+    modified_at: str = ""
+
+
+class OllamaModelInfo(BaseModel):
+    """Detailed info about an Ollama model."""
+
+    name: str
+    context_window: int
+    context_detected: bool = True  # False if using fallback default
+    parameter_size: str | None = None
+
+
+class OllamaModelsResponse(BaseModel):
+    """Response from listing Ollama models."""
+
+    models: list[OllamaModel] = []
+    error: str | None = None
+
+
+class OllamaStatus(BaseModel):
+    """Connection status for Ollama."""
+
+    connected: bool
+    model_count: int = 0
+    error: str | None = None

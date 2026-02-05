@@ -111,13 +111,17 @@ Estimated cost displays before you generate. No surprises.
 
 ### Multi-Provider Support
 
-Bring your own API key:
+Bring your own API key—or run locally:
 
 | Provider | Max Tracks | Best For |
 |----------|------------|----------|
 | **Google Gemini** | ~18,000 | Large libraries, lowest cost |
 | **Anthropic Claude** | ~3,500 | Nuanced recommendations |
 | **OpenAI GPT** | ~2,300 | Solid all-around |
+| **Ollama** ⚗️ | Varies by model | Privacy, no API costs |
+| **Custom** ⚗️ | Configurable | Self-hosted, OpenAI-compatible APIs |
+
+⚗️ *Local LLM support is experimental. [Report issues](https://github.com/ecwilsonaz/plexsage/issues).*
 
 PlexSage auto-detects your provider based on which key you configure.
 
@@ -236,8 +240,12 @@ services:
 | `GEMINI_API_KEY` | One required | Google Gemini API key |
 | `ANTHROPIC_API_KEY` | One required | Anthropic API key |
 | `OPENAI_API_KEY` | One required | OpenAI API key |
+| `LLM_PROVIDER` | No | Force provider: `gemini`, `anthropic`, `openai`, `ollama`, `custom` |
 | `PLEX_MUSIC_LIBRARY` | No | Library name if not "Music" |
-| `LLM_PROVIDER` | No | Force provider (auto-detected from API key) |
+| `OLLAMA_URL` | No | Ollama server URL (default: `http://localhost:11434`) |
+| `OLLAMA_CONTEXT_WINDOW` | No | Override detected context window for Ollama (default: 32768) |
+| `CUSTOM_LLM_URL` | No | Custom OpenAI-compatible API base URL |
+| `CUSTOM_CONTEXT_WINDOW` | No | Context window size for custom provider (default: 32768) |
 
 ### Web UI Configuration
 
@@ -271,6 +279,47 @@ PlexSage uses a two-model strategy by default:
 | **Generation** | Select tracks from filtered list | claude-haiku-4-5 / gpt-4.1-mini / gemini-2.5-flash |
 
 This balances quality with cost. Enable `smart_generation: true` to use the analysis model for everything.
+
+### Local LLM Setup (Experimental)
+
+Run PlexSage with local models for privacy and zero API costs.
+
+<details>
+<summary><strong>Ollama</strong></summary>
+
+1. Install [Ollama](https://ollama.ai) and pull a model:
+   ```bash
+   ollama pull llama3:8b
+   ```
+
+2. Configure PlexSage via environment or Settings UI:
+   ```bash
+   LLM_PROVIDER=ollama
+   OLLAMA_URL=http://localhost:11434
+   ```
+
+3. Select your model in Settings → the context window is auto-detected.
+
+**Recommended models:** `llama3:8b`, `qwen3:8b`, `mistral` — models with 8K+ context work best.
+
+</details>
+
+<details>
+<summary><strong>Custom OpenAI-Compatible API</strong></summary>
+
+For LM Studio, text-generation-webui, vLLM, or any OpenAI-compatible server:
+
+1. Start your server with an OpenAI-compatible endpoint
+
+2. Configure in Settings:
+   - **API Base URL:** `http://localhost:5000/v1`
+   - **API Key:** If required by your server
+   - **Model Name:** The model identifier
+   - **Context Window:** Your model's context size
+
+</details>
+
+**Note:** Local models are slower and may produce less accurate results than cloud providers. A 10-minute timeout is used for generation. Models with larger context windows will support more tracks.
 
 ---
 
@@ -335,9 +384,9 @@ pytest tests/ -v
 
 ### Tech Stack
 
-- **Backend:** Python 3.11+, FastAPI, python-plexapi, rapidfuzz
+- **Backend:** Python 3.11+, FastAPI, python-plexapi, rapidfuzz, httpx
 - **Frontend:** Vanilla HTML/CSS/JS (no build step)
-- **LLM SDKs:** anthropic, openai, google-genai
+- **LLM SDKs:** anthropic, openai, google-genai (+ Ollama via REST API)
 - **Deployment:** Docker
 
 ---
@@ -349,11 +398,14 @@ Interactive documentation available at `/docs` when running.
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/health` | GET | Health check |
-| `/api/config` | GET | Current configuration |
+| `/api/config` | GET/POST | Get or update configuration |
 | `/api/library/stats` | GET | Library statistics |
 | `/api/analyze/prompt` | POST | Analyze natural language prompt |
 | `/api/generate` | POST | Generate playlist |
 | `/api/playlist` | POST | Save playlist to Plex |
+| `/api/ollama/status` | GET | Ollama connection status |
+| `/api/ollama/models` | GET | List available Ollama models |
+| `/api/ollama/model-info` | GET | Get model details (context window) |
 
 ---
 

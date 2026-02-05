@@ -1,4 +1,4 @@
-"""LLM client abstraction for Anthropic, OpenAI, and Google Gemini providers."""
+"""LLM client abstraction for Anthropic, OpenAI, Google Gemini, Ollama, and custom providers."""
 
 import json
 import logging
@@ -9,9 +9,10 @@ from typing import Any
 import anthropic
 from google import genai
 from google.genai import types as genai_types
+import httpx
 import openai
 
-from backend.models import LLMConfig
+from backend.models import LLMConfig, OllamaModel, OllamaModelInfo, OllamaModelsResponse, OllamaStatus
 
 logger = logging.getLogger(__name__)
 
@@ -65,25 +66,28 @@ class LLMResponse:
         return estimate_cost_for_model(self.model, self.input_tokens, self.output_tokens)
 
 
-def estimate_cost_for_model(model: str, input_tokens: int, output_tokens: int) -> float:
+def estimate_cost_for_model(
+    model: str, input_tokens: int, output_tokens: int, config: LLMConfig | None = None
+) -> float:
     """Estimate cost in USD for a given model and token counts.
 
     Args:
         model: Model name (e.g., 'claude-haiku-4-5', 'gpt-4.1-mini')
         input_tokens: Estimated input token count
         output_tokens: Estimated output token count
+        config: Optional LLMConfig to check for local providers
 
     Returns:
-        Estimated cost in USD
+        Estimated cost in USD (0.0 for local providers)
     """
-    costs = MODEL_COSTS.get(model, {"input": 1.0, "output": 2.0})
+    costs = get_model_cost(model, config)
     input_cost = (input_tokens / 1_000_000) * costs["input"]
     output_cost = (output_tokens / 1_000_000) * costs["output"]
     return input_cost + output_cost
 
 
 class LLMClient:
-    """Unified LLM client for Anthropic and OpenAI."""
+    """Unified LLM client for Anthropic, OpenAI, Gemini, Ollama, and custom providers."""
 
     def __init__(self, config: LLMConfig):
         """Initialize LLM client.
@@ -101,6 +105,13 @@ class LLMClient:
             self._client = openai.OpenAI(api_key=config.api_key)
         elif config.provider == "gemini":
             self._client = genai.Client(api_key=config.api_key)
+        elif config.provider == "custom":
+            # Custom OpenAI-compatible endpoint
+            self._client = openai.OpenAI(
+                api_key=config.api_key or "not-needed",  # Use configured key or placeholder
+                base_url=config.custom_url,
+            )
+        # Note: Ollama uses httpx directly, no persistent client needed
 
     def _complete_anthropic(
         self, prompt: str, system: str, model: str
@@ -207,6 +218,96 @@ class LLMClient:
         # All retries exhausted
         raise RuntimeError(f"Gemini API failed after {max_retries} attempts: {last_error}")
 
+    def _complete_ollama(
+        self, prompt: str, system: str, model: str, timeout: float = 600.0
+    ) -> LLMResponse:
+        """Make a completion request to Ollama.
+
+        Args:
+            prompt: User prompt
+            system: System prompt
+            model: Model name (e.g., "llama3:8b")
+            timeout: Request timeout in seconds (default 10 minutes for slow hardware)
+
+        Returns:
+            LLMResponse with content and token counts
+        """
+        logger.info("Calling Ollama API with %d char prompt", len(prompt))
+        ollama_url = self.config.ollama_url.rstrip("/")
+
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(
+                f"{ollama_url}/api/generate",
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "system": system,
+                    "stream": False,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        logger.debug("Ollama response received")
+
+        content = data.get("response", "")
+        # Ollama returns token counts in the response
+        # prompt_eval_count is input tokens, eval_count is output tokens
+        input_tokens = data.get("prompt_eval_count", 0)
+        output_tokens = data.get("eval_count", 0)
+
+        # Check for empty response (common with small context windows)
+        if not content or len(content.strip()) < 2:
+            logger.warning("Ollama returned empty response. Input tokens: %d", input_tokens)
+            raise RuntimeError(
+                "Ollama returned an empty response. This may happen if the context "
+                "window is too small for the request. Try reducing the number of "
+                "tracks sent to AI or using a model with a larger context window."
+            )
+
+        return LLMResponse(
+            content=content,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            model=model,
+        )
+
+    def _complete_custom(
+        self, prompt: str, system: str, model: str
+    ) -> LLMResponse:
+        """Make a completion request to a custom OpenAI-compatible endpoint.
+
+        Args:
+            prompt: User prompt
+            system: System prompt
+            model: Model name
+
+        Returns:
+            LLMResponse with content and token counts
+        """
+        logger.info("Calling custom API with %d char prompt", len(prompt))
+        response = self._client.chat.completions.create(
+            model=model,
+            max_tokens=4096,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        logger.debug("Custom API response received")
+
+        content = response.choices[0].message.content
+        # Token counts may not be available from all custom providers
+        input_tokens = getattr(response.usage, "prompt_tokens", 0) if response.usage else 0
+        output_tokens = getattr(response.usage, "completion_tokens", 0) if response.usage else 0
+
+        return LLMResponse(
+            content=content,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            model=model,
+        )
+
     def _complete(self, prompt: str, system: str, model: str) -> LLMResponse:
         """Make a completion request to the configured provider."""
         if self.provider == "anthropic":
@@ -215,6 +316,10 @@ class LLMClient:
             return self._complete_openai(prompt, system, model)
         elif self.provider == "gemini":
             return self._complete_gemini(prompt, system, model)
+        elif self.provider == "ollama":
+            return self._complete_ollama(prompt, system, model)
+        elif self.provider == "custom":
+            return self._complete_custom(prompt, system, model)
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
 
@@ -263,6 +368,13 @@ class LLMClient:
         """
         content = response.content.strip()
 
+        # Check for empty response first
+        if not content:
+            raise ValueError(
+                "LLM returned an empty response. This may happen if the context "
+                "window is too small. Try reducing 'Max Tracks to AI' in filters."
+            )
+
         # Try to extract JSON from markdown code blocks
         # Prefer ```json blocks first, then fall back to any code block
         json_match = re.search(r"```json\s*\n?(.*?)```", content, re.DOTALL | re.IGNORECASE)
@@ -277,7 +389,12 @@ class LLMClient:
         try:
             return json.loads(content)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse LLM response as JSON: {e}")
+            # Include first 200 chars of content for debugging
+            preview = content[:200] + "..." if len(content) > 200 else content
+            raise ValueError(
+                f"Failed to parse LLM response as JSON: {e}\n"
+                f"Response preview: {preview}"
+            )
 
 
 # Global client instance
@@ -296,17 +413,20 @@ def init_llm_client(config: LLMConfig) -> LLMClient:
     return _llm_client
 
 
-def get_max_tracks_for_model(model: str, buffer_percent: float = 0.10) -> int:
+def get_max_tracks_for_model(
+    model: str, buffer_percent: float = 0.10, config: LLMConfig | None = None
+) -> int:
     """Calculate max tracks that can be sent to a model.
 
     Args:
         model: Model name
         buffer_percent: Buffer to leave (default 10%)
+        config: Optional LLMConfig for local provider context window lookup
 
     Returns:
         Maximum number of tracks (0 = no practical limit)
     """
-    context_limit = MODEL_CONTEXT_LIMITS.get(model, 128_000)
+    context_limit = get_model_context_limit(model, config)
     usable_tokens = int(context_limit * (1 - buffer_percent))
 
     # Reserve ~1000 tokens for system prompt and output
@@ -316,6 +436,193 @@ def get_max_tracks_for_model(model: str, buffer_percent: float = 0.10) -> int:
     return max(100, max_tracks)  # Minimum 100 tracks
 
 
-def get_model_context_limit(model: str) -> int:
-    """Get the context limit for a model in tokens."""
-    return MODEL_CONTEXT_LIMITS.get(model, 128_000)
+def get_model_context_limit(model: str, config: LLMConfig | None = None) -> int:
+    """Get the context limit for a model in tokens.
+
+    Args:
+        model: Model name
+        config: Optional LLMConfig for local provider context window lookup
+
+    Returns:
+        Context limit in tokens
+    """
+    # Check standard model limits first
+    if model in MODEL_CONTEXT_LIMITS:
+        return MODEL_CONTEXT_LIMITS[model]
+
+    # For local providers, use config-based context window
+    if config:
+        if config.provider == "custom":
+            return config.custom_context_window
+        if config.provider == "ollama":
+            return config.ollama_context_window
+
+    return 128_000  # Default fallback
+
+
+def get_model_cost(model: str, config: LLMConfig | None = None) -> dict[str, float]:
+    """Get cost per million tokens for a model.
+
+    Args:
+        model: Model name
+        config: Optional LLMConfig to check for local providers
+
+    Returns:
+        Dict with "input" and "output" cost per million tokens
+    """
+    # Local providers have zero cost
+    if config and config.provider in ("ollama", "custom"):
+        return {"input": 0.0, "output": 0.0}
+
+    return MODEL_COSTS.get(model, {"input": 1.0, "output": 2.0})
+
+
+# =============================================================================
+# Ollama API Functions
+# =============================================================================
+
+
+def list_ollama_models(ollama_url: str, timeout: float = 5.0) -> OllamaModelsResponse:
+    """List available models from Ollama server.
+
+    Args:
+        ollama_url: Base URL of Ollama server (e.g., http://localhost:11434)
+        timeout: Request timeout in seconds
+
+    Returns:
+        OllamaModelsResponse with models list or error
+    """
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.get(f"{ollama_url.rstrip('/')}/api/tags")
+            response.raise_for_status()
+            data = response.json()
+
+            models = []
+            for model_data in data.get("models", []):
+                models.append(OllamaModel(
+                    name=model_data.get("name", ""),
+                    size=model_data.get("size", 0),
+                    modified_at=model_data.get("modified_at", ""),
+                ))
+
+            return OllamaModelsResponse(models=models)
+
+    except httpx.ConnectError:
+        return OllamaModelsResponse(
+            error=f"Cannot reach Ollama at {ollama_url}"
+        )
+    except httpx.TimeoutException:
+        return OllamaModelsResponse(
+            error=f"Timeout connecting to Ollama at {ollama_url}"
+        )
+    except Exception as e:
+        logger.exception("Error listing Ollama models")
+        return OllamaModelsResponse(error=str(e))
+
+
+def get_ollama_model_info(ollama_url: str, model_name: str, timeout: float = 5.0) -> OllamaModelInfo | None:
+    """Get detailed info about an Ollama model including context window.
+
+    Args:
+        ollama_url: Base URL of Ollama server
+        model_name: Name of the model (e.g., "llama3:8b")
+        timeout: Request timeout in seconds
+
+    Returns:
+        OllamaModelInfo with context window, or None if not found
+    """
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(
+                f"{ollama_url.rstrip('/')}/api/show",
+                json={"name": model_name}
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Extract context window - check multiple sources in priority order
+            context_window = 32768  # Default fallback
+            context_detected = False
+
+            # Priority 1: Check model_info for native context_length (most reliable)
+            # Keys are like "qwen3.context_length", "llama.context_length", etc.
+            model_info = data.get("model_info", {})
+            for key, value in model_info.items():
+                if key.endswith(".context_length") and isinstance(value, int):
+                    context_window = value
+                    context_detected = True
+                    break
+
+            # Priority 2: Check for explicit num_ctx in parameters or modelfile
+            # (This overrides native context if user configured it)
+            parameters = data.get("parameters", "")
+            modelfile = data.get("modelfile", "")
+
+            for line in (parameters + "\n" + modelfile).split("\n"):
+                line = line.strip().lower()
+                if "num_ctx" in line:
+                    # Extract number from line like "num_ctx 8192" or "PARAMETER num_ctx 8192"
+                    parts = line.split()
+                    for i, part in enumerate(parts):
+                        if part == "num_ctx" and i + 1 < len(parts):
+                            try:
+                                context_window = int(parts[i + 1])
+                                context_detected = True
+                                break
+                            except ValueError:
+                                pass
+
+            # Get parameter size from details
+            details = data.get("details", {})
+            parameter_size = details.get("parameter_size")
+
+            return OllamaModelInfo(
+                name=model_name,
+                context_window=context_window,
+                context_detected=context_detected,
+                parameter_size=parameter_size,
+            )
+
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return None
+        logger.exception("Error getting Ollama model info")
+        return None
+    except Exception:
+        logger.exception("Error getting Ollama model info")
+        return None
+
+
+def get_ollama_status(ollama_url: str, timeout: float = 5.0) -> OllamaStatus:
+    """Check Ollama connection status.
+
+    Args:
+        ollama_url: Base URL of Ollama server
+        timeout: Request timeout in seconds
+
+    Returns:
+        OllamaStatus with connection status and model count
+    """
+    models_response = list_ollama_models(ollama_url, timeout)
+
+    if models_response.error:
+        return OllamaStatus(
+            connected=False,
+            model_count=0,
+            error=models_response.error,
+        )
+
+    model_count = len(models_response.models)
+    if model_count == 0:
+        return OllamaStatus(
+            connected=True,
+            model_count=0,
+            error="Connected but no models installed. Run `ollama pull llama3`",
+        )
+
+    return OllamaStatus(
+        connected=True,
+        model_count=model_count,
+        error=None,
+    )

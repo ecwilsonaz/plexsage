@@ -274,11 +274,80 @@
                             <option value="anthropic">Anthropic (Claude)</option>
                             <option value="openai">OpenAI (GPT)</option>
                             <option value="gemini">Google (Gemini)</option>
+                            <option value="ollama">Ollama (Local)</option>
+                            <option value="custom">Custom (OpenAI-compatible)</option>
                         </select>
+                        <p id="provider-env-warning" class="env-warning hidden">
+                            Set by <code>LLM_PROVIDER</code> environment variable. Edit <code>.env</code> to change.
+                        </p>
                     </div>
-                    <div class="form-group">
-                        <label for="llm-api-key">API Key</label>
-                        <input type="password" id="llm-api-key" placeholder="Your API key">
+
+                    <!-- Cloud Provider Settings (anthropic, openai, gemini) -->
+                    <div id="cloud-provider-settings">
+                        <div class="form-group">
+                            <label for="llm-api-key">API Key</label>
+                            <input type="password" id="llm-api-key" placeholder="Your API key">
+                        </div>
+                    </div>
+
+                    <!-- Ollama Settings -->
+                    <div id="ollama-settings" class="provider-settings hidden">
+                        <div class="experimental-warning">
+                            <strong>Experimental Feature</strong>
+                            <p>Local LLM support is experimental. Please <a href="https://github.com/ecwilsonaz/plexsage/issues" target="_blank" rel="noopener">report issues on GitHub</a>.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="ollama-url">Ollama URL</label>
+                            <input type="text" id="ollama-url" placeholder="http://localhost:11434">
+                        </div>
+                        <div class="status-indicator" id="ollama-status">
+                            <span class="status-dot"></span>
+                            <span class="status-text">Not connected</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="ollama-model-analysis">Analysis Model</label>
+                            <select id="ollama-model-analysis" disabled>
+                                <option value="">-- Select model --</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="ollama-model-generation">Generation Model</label>
+                            <select id="ollama-model-generation" disabled>
+                                <option value="">-- Select model --</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Context Window</label>
+                            <span id="ollama-context-window" class="context-info">-- tokens</span>
+                            <span id="ollama-max-tracks" class="context-info">(~-- tracks)</span>
+                        </div>
+                    </div>
+
+                    <!-- Custom Provider Settings -->
+                    <div id="custom-settings" class="provider-settings hidden">
+                        <div class="experimental-warning">
+                            <strong>Experimental Feature</strong>
+                            <p>Local LLM support is experimental. Please <a href="https://github.com/ecwilsonaz/plexsage/issues" target="_blank" rel="noopener">report issues on GitHub</a>.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="custom-url">API Base URL</label>
+                            <input type="text" id="custom-url" placeholder="http://localhost:5000/v1">
+                            <span id="custom-url-error" class="field-error hidden"></span>
+                        </div>
+                        <div class="form-group">
+                            <label for="custom-api-key">API Key <span class="optional-label">(optional)</span></label>
+                            <input type="password" id="custom-api-key" placeholder="sk-...">
+                        </div>
+                        <div class="form-group">
+                            <label for="custom-model">Model Name</label>
+                            <input type="text" id="custom-model" placeholder="model-name">
+                        </div>
+                        <div class="form-group">
+                            <label for="custom-context-window">Context Window (tokens)</label>
+                            <input type="number" id="custom-context-window" value="32768" min="512">
+                            <span id="custom-max-tracks" class="context-info">(~-- tracks)</span>
+                            <span id="custom-context-error" class="field-error hidden"></span>
+                        </div>
                     </div>
                 </section>
 

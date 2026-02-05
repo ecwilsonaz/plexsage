@@ -54,6 +54,14 @@ MODEL_DEFAULTS = {
         "analysis": "gemini-2.5-flash",
         "generation": "gemini-2.5-flash",
     },
+    "ollama": {
+        "analysis": "",  # Populated from Ollama API
+        "generation": "",
+    },
+    "custom": {
+        "analysis": "",  # User-specified
+        "generation": "",
+    },
 }
 
 
@@ -166,20 +174,62 @@ def load_config(config_path: Path | None = None) -> AppConfig:
         ),
     )
 
-    llm_config = LLMConfig(
-        provider=provider,
-        api_key=api_key,
-        model_analysis=get_env_or_yaml(
+    # Get local provider settings
+    ollama_url = get_env_or_yaml(
+        "OLLAMA_URL", llm_yaml.get("ollama_url"), "http://localhost:11434"
+    )
+    ollama_context_window_str = get_env_or_yaml(
+        "OLLAMA_CONTEXT_WINDOW", llm_yaml.get("ollama_context_window"), 32768
+    )
+    ollama_context_window = int(ollama_context_window_str) if isinstance(
+        ollama_context_window_str, str
+    ) else ollama_context_window_str
+    custom_url = get_env_or_yaml(
+        "CUSTOM_LLM_URL", llm_yaml.get("custom_url"), ""
+    )
+    custom_context_window_str = get_env_or_yaml(
+        "CUSTOM_CONTEXT_WINDOW", llm_yaml.get("custom_context_window"), 32768
+    )
+    # Handle string from env var
+    custom_context_window = int(custom_context_window_str) if isinstance(
+        custom_context_window_str, str
+    ) else custom_context_window_str
+
+    # Determine model names with proper fallback chain
+    # When env var overrides to a DIFFERENT provider, use that provider's defaults
+    # (prevents using custom provider's model names with gemini provider, etc.)
+    env_provider = os.environ.get("LLM_PROVIDER")
+    yaml_provider = llm_yaml.get("provider")
+    provider_changed_by_env = env_provider and env_provider != yaml_provider
+
+    if provider_changed_by_env:
+        # Env var switched to different provider - use new provider's defaults
+        # (unless model env vars are also explicitly set)
+        model_analysis = os.environ.get("LLM_MODEL_ANALYSIS") or provider_defaults["analysis"]
+        model_generation = os.environ.get("LLM_MODEL_GENERATION") or provider_defaults["generation"]
+    else:
+        # Same provider or no env override - YAML models take precedence
+        model_analysis = get_env_or_yaml(
             "LLM_MODEL_ANALYSIS",
             llm_yaml.get("model_analysis"),
             provider_defaults["analysis"],
-        ),
-        model_generation=get_env_or_yaml(
+        )
+        model_generation = get_env_or_yaml(
             "LLM_MODEL_GENERATION",
             llm_yaml.get("model_generation"),
             provider_defaults["generation"],
-        ),
+        )
+
+    llm_config = LLMConfig(
+        provider=provider,
+        api_key=api_key,
+        model_analysis=model_analysis,
+        model_generation=model_generation,
         smart_generation=llm_yaml.get("smart_generation", False),
+        ollama_url=ollama_url,
+        ollama_context_window=ollama_context_window,
+        custom_url=custom_url,
+        custom_context_window=custom_context_window,
     )
 
     defaults_config = DefaultsConfig(
@@ -261,6 +311,16 @@ def update_config_values(updates: dict[str, Any]) -> AppConfig:
         llm_updates["model_analysis"] = updates["model_analysis"]
     if "model_generation" in updates and updates["model_generation"]:
         llm_updates["model_generation"] = updates["model_generation"]
+
+    # Local provider settings
+    if "ollama_url" in updates and updates["ollama_url"]:
+        llm_updates["ollama_url"] = updates["ollama_url"]
+    if "ollama_context_window" in updates and updates["ollama_context_window"]:
+        llm_updates["ollama_context_window"] = updates["ollama_context_window"]
+    if "custom_url" in updates and updates["custom_url"]:
+        llm_updates["custom_url"] = updates["custom_url"]
+    if "custom_context_window" in updates and updates["custom_context_window"]:
+        llm_updates["custom_context_window"] = updates["custom_context_window"]
 
     # Create new config with updates
     new_plex = _config.plex.model_copy(update=plex_updates)

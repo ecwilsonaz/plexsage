@@ -98,6 +98,22 @@ async function fetchHealth() {
     return apiCall('/health');
 }
 
+// =============================================================================
+// Ollama API Calls
+// =============================================================================
+
+async function fetchOllamaStatus(url) {
+    return apiCall(`/ollama/status?url=${encodeURIComponent(url)}`);
+}
+
+async function fetchOllamaModels(url) {
+    return apiCall(`/ollama/models?url=${encodeURIComponent(url)}`);
+}
+
+async function fetchOllamaModelInfo(url, modelName) {
+    return apiCall(`/ollama/model-info?url=${encodeURIComponent(url)}&model=${encodeURIComponent(modelName)}`);
+}
+
 async function analyzePrompt(prompt) {
     return apiCall('/analyze/prompt', {
         method: 'POST',
@@ -259,10 +275,11 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
         }
     };
 
-    // Timeout handling - abort if no progress for 60 seconds
+    // Timeout handling - 10 minutes for local providers, 60 seconds for cloud
     let timeoutId = null;
     let abortController = new AbortController();
-    const TIMEOUT_MS = 60000;
+    const isLocalProvider = state.config?.is_local_provider ?? false;
+    const TIMEOUT_MS = isLocalProvider ? 600000 : 60000;  // 10 min vs 60s
 
     function resetTimeout() {
         if (timeoutId) clearTimeout(timeoutId);
@@ -513,18 +530,29 @@ function updateFilters() {
     });
 }
 
-function updateGeminiSuggestion() {
+function updateModelSuggestion() {
     const suggestion = document.getElementById('gemini-suggestion');
     if (!suggestion || !state.config) return;
 
-    // Show suggestion if not using Gemini
     const provider = state.config.llm_provider;
-    if (provider !== 'gemini') {
-        // Gemini is 5x Anthropic (200K → 1M) and 8x OpenAI (128K → 1M)
+    const maxTracks = state.config.max_tracks_to_ai || 3500;
+    const isLocalProvider = state.config.is_local_provider;
+
+    // Cloud provider baselines for comparison
+    const ANTHROPIC_MAX = 3500;  // ~200K context
+    const GEMINI_MAX = 18000;    // ~1M context
+
+    if (isLocalProvider && maxTracks < ANTHROPIC_MAX) {
+        // Local model with small context - suggest a more powerful model
+        suggestion.textContent = 'Switch to a model with a larger context window in Settings for higher track limits.';
+        suggestion.classList.remove('hidden');
+    } else if (!isLocalProvider && provider !== 'gemini') {
+        // Cloud provider that isn't Gemini - suggest Gemini specifically
         const multiplier = provider === 'openai' ? '8x' : '5x';
         suggestion.textContent = `Switch to Gemini in Settings for ${multiplier} higher track limits.`;
         suggestion.classList.remove('hidden');
     } else {
+        // Using Gemini or a local model with large context - no suggestion needed
         suggestion.classList.add('hidden');
     }
 }
@@ -533,7 +561,7 @@ function updateTrackLimitButtons() {
     const container = document.querySelector('.track-limit-selector');
     if (!container || !state.config) return;
 
-    updateGeminiSuggestion();
+    updateModelSuggestion();
 
     const maxAllowed = state.config.max_tracks_to_ai || 3500;
 
@@ -633,9 +661,13 @@ function updateFilterPreviewDisplay(matchingTracks, tracksToSend, estimatedCost)
     }
     previewTracks.textContent = trackText;
 
-    // Show unknown cost when track count is unknown
+    // For local providers, hide cost estimate (show tokens only)
+    const isLocalProvider = state.config?.is_local_provider ?? false;
     if (matchingTracks < 0) {
-        previewCost.textContent = 'Est. cost: --';
+        previewCost.textContent = isLocalProvider ? '' : 'Est. cost: --';
+    } else if (isLocalProvider) {
+        // Don't show cost for local providers
+        previewCost.textContent = '';
     } else {
         previewCost.textContent = `Est. cost: $${estimatedCost.toFixed(4)}`;
     }
@@ -700,8 +732,14 @@ function updatePlaylist() {
     `).join('');
 
     // Update cost display (actual costs from API responses)
+    // For local providers, show tokens only (no dollar cost)
     const costDisplay = document.getElementById('cost-display');
-    costDisplay.textContent = `${state.tokenCount.toLocaleString()} tokens ($${state.estimatedCost.toFixed(4)})`;
+    const isLocalProvider = state.config?.is_local_provider ?? false;
+    if (isLocalProvider) {
+        costDisplay.textContent = `${state.tokenCount.toLocaleString()} tokens`;
+    } else {
+        costDisplay.textContent = `${state.tokenCount.toLocaleString()} tokens ($${state.estimatedCost.toFixed(4)})`;
+    }
 
     // Update playlist name input
     document.getElementById('playlist-name-input').value = state.playlistName;
@@ -714,6 +752,12 @@ function updateSettings() {
     document.getElementById('music-library').value = state.config.music_library || 'Music';
     document.getElementById('llm-provider').value = state.config.llm_provider || 'gemini';
 
+    // Show warning if provider is set by environment variable
+    const providerEnvWarning = document.getElementById('provider-env-warning');
+    if (providerEnvWarning) {
+        providerEnvWarning.classList.toggle('hidden', !state.config.provider_from_env);
+    }
+
     // Update token/key placeholders to indicate if configured
     const plexTokenInput = document.getElementById('plex-token');
     plexTokenInput.placeholder = state.config.plex_token_set
@@ -725,6 +769,23 @@ function updateSettings() {
         ? '••••••••••••••••  (configured)'
         : 'Your API key';
 
+    // Update Ollama settings
+    const ollamaUrl = document.getElementById('ollama-url');
+    ollamaUrl.value = state.config.ollama_url || 'http://localhost:11434';
+
+    // Update Custom provider settings
+    const customUrl = document.getElementById('custom-url');
+    const customApiKey = document.getElementById('custom-api-key');
+    const customModel = document.getElementById('custom-model');
+    const customContext = document.getElementById('custom-context-window');
+    customUrl.value = state.config.custom_url || '';
+    customApiKey.value = '';  // Never show actual key
+    customApiKey.placeholder = state.config.llm_api_key_set && state.config.llm_provider === 'custom'
+        ? '••••••••••••• (key saved)'
+        : 'sk-... (optional)';
+    customModel.value = state.config.model_analysis || '';  // Custom uses same model for both
+    customContext.value = state.config.custom_context_window || 32768;
+
     // Update status indicators
     const plexStatus = document.getElementById('plex-status');
     plexStatus.classList.toggle('connected', state.config.plex_connected);
@@ -735,6 +796,232 @@ function updateSettings() {
     llmStatus.classList.toggle('connected', state.config.llm_configured);
     llmStatus.querySelector('.status-text').textContent =
         state.config.llm_configured ? 'Configured' : 'Not configured';
+
+    // Show provider-specific settings
+    showProviderSettings(state.config.llm_provider);
+}
+
+function showProviderSettings(provider) {
+    // Hide all provider-specific settings
+    const cloudSettings = document.getElementById('cloud-provider-settings');
+    const ollamaSettings = document.getElementById('ollama-settings');
+    const customSettings = document.getElementById('custom-settings');
+
+    cloudSettings.classList.add('hidden');
+    ollamaSettings.classList.add('hidden');
+    customSettings.classList.add('hidden');
+
+    // Show the appropriate settings
+    if (provider === 'ollama') {
+        ollamaSettings.classList.remove('hidden');
+        // Trigger Ollama status check if URL is set
+        const ollamaUrl = document.getElementById('ollama-url').value.trim();
+        if (ollamaUrl) {
+            checkOllamaStatus(ollamaUrl);
+        }
+    } else if (provider === 'custom') {
+        customSettings.classList.remove('hidden');
+        updateCustomMaxTracks();
+    } else {
+        // Cloud providers (anthropic, openai, gemini)
+        cloudSettings.classList.remove('hidden');
+    }
+}
+
+async function checkOllamaStatus(url) {
+    const statusEl = document.getElementById('ollama-status');
+    const statusDot = statusEl.querySelector('.status-dot');
+    const statusText = statusEl.querySelector('.status-text');
+
+    statusText.textContent = 'Checking...';
+    statusEl.classList.remove('connected', 'error');
+
+    try {
+        const status = await fetchOllamaStatus(url);
+        if (status.connected) {
+            statusEl.classList.add('connected');
+            if (status.model_count > 0) {
+                statusText.textContent = `Connected (${status.model_count} models)`;
+                await populateOllamaModelDropdowns(url);
+            } else {
+                statusEl.classList.remove('connected');
+                statusEl.classList.add('error');
+                statusText.textContent = 'No models installed';
+            }
+        } else {
+            statusEl.classList.add('error');
+            statusText.textContent = status.error || 'Connection failed';
+        }
+    } catch (error) {
+        statusEl.classList.add('error');
+        statusText.textContent = 'Connection failed';
+    }
+}
+
+async function populateOllamaModelDropdowns(url) {
+    const analysisSelect = document.getElementById('ollama-model-analysis');
+    const generationSelect = document.getElementById('ollama-model-generation');
+
+    try {
+        const response = await fetchOllamaModels(url);
+        if (response.error) {
+            console.error('Failed to fetch Ollama models:', response.error);
+            return;
+        }
+
+        const models = response.models || [];
+        const options = models.map(m => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join('');
+        const defaultOption = '<option value="">-- Select model --</option>';
+
+        analysisSelect.innerHTML = defaultOption + options;
+        generationSelect.innerHTML = defaultOption + options;
+
+        // Enable the dropdowns
+        analysisSelect.disabled = false;
+        generationSelect.disabled = false;
+
+        // Restore saved model selections from config
+        if (state.config?.model_analysis) {
+            analysisSelect.value = state.config.model_analysis;
+        }
+        if (state.config?.model_generation) {
+            generationSelect.value = state.config.model_generation;
+        }
+
+        // If neither model is configured and models are available, default both to first model
+        if (!analysisSelect.value && !generationSelect.value && models.length > 0) {
+            const firstModel = models[0].name;
+            analysisSelect.value = firstModel;
+            generationSelect.value = firstModel;
+        }
+
+        // If a model is selected, fetch its context info
+        if (analysisSelect.value) {
+            await updateOllamaContextDisplay(url, analysisSelect.value);
+        }
+    } catch (error) {
+        console.error('Error populating Ollama models:', error);
+    }
+}
+
+async function updateOllamaContextDisplay(url, modelName) {
+    const contextEl = document.getElementById('ollama-context-window');
+    const maxTracksEl = document.getElementById('ollama-max-tracks');
+
+    if (!modelName) {
+        contextEl.textContent = '-- tokens';
+        maxTracksEl.textContent = '(~-- tracks)';
+        return;
+    }
+
+    try {
+        const info = await fetchOllamaModelInfo(url, modelName);
+        if (info && info.context_window) {
+            // Show context window with note if using default
+            const isDefault = info.context_detected === false;
+            const defaultNote = isDefault ? ' (default - not detected)' : '';
+            contextEl.textContent = `${info.context_window.toLocaleString()} tokens${defaultNote}`;
+
+            // Calculate max tracks: (context - 1000 buffer) / 50 tokens per track
+            const maxTracks = Math.max(100, Math.floor((info.context_window * 0.9 - 1000) / 50));
+            maxTracksEl.textContent = `(~${maxTracks.toLocaleString()} tracks)`;
+
+            // Save the context window to config so backend can calculate max_tracks_to_ai
+            try {
+                await updateConfig({ ollama_context_window: info.context_window });
+                // Refresh config state to get updated max_tracks_to_ai
+                state.config = await fetchConfig();
+            } catch (saveError) {
+                console.error('Failed to save Ollama context window:', saveError);
+            }
+        } else {
+            contextEl.textContent = '32,768 tokens (default)';
+            maxTracksEl.textContent = '(~556 tracks)';
+        }
+    } catch (error) {
+        contextEl.textContent = '-- tokens';
+        maxTracksEl.textContent = '(~-- tracks)';
+    }
+}
+
+function updateCustomMaxTracks() {
+    const contextInput = document.getElementById('custom-context-window');
+    const maxTracksEl = document.getElementById('custom-max-tracks');
+
+    const contextWindow = parseInt(contextInput.value) || 32768;
+    // Calculate max tracks: (context - 1000 buffer) / 50 tokens per track
+    const maxTracks = Math.max(100, Math.floor((contextWindow * 0.9 - 1000) / 50));
+    maxTracksEl.textContent = `(~${maxTracks.toLocaleString()} tracks)`;
+}
+
+function validateCustomProviderInputs() {
+    const customUrl = document.getElementById('custom-url').value.trim();
+    const customModel = document.getElementById('custom-model').value.trim();
+    const customContext = parseInt(document.getElementById('custom-context-window').value);
+
+    const errors = [];
+
+    // Validate URL
+    if (customUrl) {
+        try {
+            const url = new URL(customUrl);
+            if (!['http:', 'https:'].includes(url.protocol)) {
+                errors.push('Custom URL must use http or https protocol');
+            }
+        } catch {
+            errors.push('Custom URL is not a valid URL');
+        }
+    }
+
+    // Validate context window
+    if (isNaN(customContext) || customContext < 512) {
+        errors.push('Context window must be at least 512 tokens');
+    } else if (customContext > 2000000) {
+        errors.push('Context window seems too large (max 2M tokens)');
+    }
+
+    return errors;
+}
+
+function validateCustomUrlInline() {
+    const customUrl = document.getElementById('custom-url').value.trim();
+    const errorEl = document.getElementById('custom-url-error');
+
+    if (!customUrl) {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+        return;
+    }
+
+    try {
+        const url = new URL(customUrl);
+        if (!['http:', 'https:'].includes(url.protocol)) {
+            errorEl.textContent = 'Must use http or https protocol';
+            errorEl.classList.remove('hidden');
+        } else {
+            errorEl.textContent = '';
+            errorEl.classList.add('hidden');
+        }
+    } catch {
+        errorEl.textContent = 'Invalid URL format';
+        errorEl.classList.remove('hidden');
+    }
+}
+
+function validateCustomContextInline() {
+    const customContext = parseInt(document.getElementById('custom-context-window').value);
+    const errorEl = document.getElementById('custom-context-error');
+
+    if (isNaN(customContext) || customContext < 512) {
+        errorEl.textContent = 'Must be at least 512 tokens';
+        errorEl.classList.remove('hidden');
+    } else if (customContext > 2000000) {
+        errorEl.textContent = 'Cannot exceed 2,000,000 tokens';
+        errorEl.classList.remove('hidden');
+    } else {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+    }
 }
 
 function updateConfigRequiredUI() {
@@ -1050,6 +1337,44 @@ function setupEventListeners() {
 
     // Success modal - Start New Playlist
     document.getElementById('new-playlist-btn').addEventListener('click', hideSuccessModal);
+
+    // Provider selection change
+    document.getElementById('llm-provider').addEventListener('change', (e) => {
+        showProviderSettings(e.target.value);
+    });
+
+    // Ollama URL change - trigger status check
+    let ollamaUrlTimeout = null;
+    document.getElementById('ollama-url').addEventListener('input', (e) => {
+        // Debounce the status check
+        if (ollamaUrlTimeout) clearTimeout(ollamaUrlTimeout);
+        ollamaUrlTimeout = setTimeout(() => {
+            const url = e.target.value.trim();
+            if (url) {
+                checkOllamaStatus(url);
+            }
+        }, 500);
+    });
+
+    // Ollama model selection change - update context display
+    document.getElementById('ollama-model-analysis').addEventListener('change', async (e) => {
+        const url = document.getElementById('ollama-url').value.trim();
+        const model = e.target.value;
+        if (url && model) {
+            await updateOllamaContextDisplay(url, model);
+        }
+    });
+
+    // Custom context window change - update max tracks display and validate inline
+    document.getElementById('custom-context-window').addEventListener('input', () => {
+        updateCustomMaxTracks();
+        validateCustomContextInline();
+    });
+
+    // Custom URL validation on blur
+    document.getElementById('custom-url').addEventListener('blur', () => {
+        validateCustomUrlInline();
+    });
 }
 
 async function handleAnalyzePrompt() {
@@ -1401,11 +1726,45 @@ async function handleSaveSettings() {
     const llmProvider = document.getElementById('llm-provider').value;
     const llmApiKey = document.getElementById('llm-api-key').value.trim();
 
+    // Ollama settings
+    const ollamaUrl = document.getElementById('ollama-url').value.trim();
+    const ollamaModelAnalysis = document.getElementById('ollama-model-analysis').value;
+    const ollamaModelGeneration = document.getElementById('ollama-model-generation').value;
+
+    // Custom provider settings
+    const customUrl = document.getElementById('custom-url').value.trim();
+    const customApiKey = document.getElementById('custom-api-key').value.trim();
+    const customModel = document.getElementById('custom-model').value.trim();
+    const customContextWindow = parseInt(document.getElementById('custom-context-window').value) || 32768;
+
     if (plexUrl) updates.plex_url = plexUrl;
     if (plexToken) updates.plex_token = plexToken;
     if (musicLibrary) updates.music_library = musicLibrary;
     if (llmProvider) updates.llm_provider = llmProvider;
-    if (llmApiKey) updates.llm_api_key = llmApiKey;
+
+    // Set provider-specific settings
+    if (llmProvider === 'ollama') {
+        if (ollamaUrl) updates.ollama_url = ollamaUrl;
+        if (ollamaModelAnalysis) updates.model_analysis = ollamaModelAnalysis;
+        if (ollamaModelGeneration) updates.model_generation = ollamaModelGeneration;
+    } else if (llmProvider === 'custom') {
+        // Validate custom provider inputs
+        const validationErrors = validateCustomProviderInputs();
+        if (validationErrors.length > 0) {
+            showError(validationErrors.join('. '));
+            return;
+        }
+        if (customUrl) updates.custom_url = customUrl;
+        if (customApiKey) updates.llm_api_key = customApiKey;
+        if (customModel) {
+            updates.model_analysis = customModel;
+            updates.model_generation = customModel;  // Same model for both
+        }
+        updates.custom_context_window = customContextWindow;
+    } else {
+        // Cloud providers need API key
+        if (llmApiKey) updates.llm_api_key = llmApiKey;
+    }
 
     if (Object.keys(updates).length === 0) {
         showError('No settings to update');
@@ -1419,6 +1778,7 @@ async function handleSaveSettings() {
         updateSettings();
         updateFooter();
         updateConfigRequiredUI();
+        updateTrackLimitButtons();  // Refresh track limits based on new model
         showSuccess('Settings saved!');
 
         // Clear password fields after save

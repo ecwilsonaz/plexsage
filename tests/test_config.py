@@ -1,5 +1,7 @@
 """Tests for configuration loading."""
 
+from unittest.mock import patch
+
 import yaml
 
 from backend.config import (
@@ -108,7 +110,9 @@ class TestLoadConfig:
         }
         config_file.write_text(yaml.dump(config_data))
 
-        config = load_config(config_file)
+        # Patch load_user_yaml_config to return empty dict (ignore config.user.yaml)
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            config = load_config(config_file)
 
         assert config.plex.url == "http://plex.local:32400"
         assert config.plex.token == "yaml-token"
@@ -135,7 +139,9 @@ class TestLoadConfig:
         monkeypatch.setenv("PLEX_TOKEN", "env-token")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
 
-        config = load_config(config_file)
+        # Patch load_user_yaml_config to return empty dict (ignore config.user.yaml)
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            config = load_config(config_file)
 
         assert config.plex.url == "http://env:32400"
         assert config.plex.token == "env-token"
@@ -147,22 +153,24 @@ class TestLoadConfig:
                     "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
             monkeypatch.delenv(var, raising=False)
 
-        # Test Anthropic provider
-        config_file = tmp_path / "config.yaml"
-        config_data = {"llm": {"provider": "anthropic", "api_key": ""}}
-        config_file.write_text(yaml.dump(config_data))
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
-        monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+        # Patch load_user_yaml_config to return empty dict (ignore config.user.yaml)
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            # Test Anthropic provider
+            config_file = tmp_path / "config.yaml"
+            config_data = {"llm": {"provider": "anthropic", "api_key": ""}}
+            config_file.write_text(yaml.dump(config_data))
+            monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
+            monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
 
-        config = load_config(config_file)
-        assert config.llm.api_key == "anthropic-key"
+            config = load_config(config_file)
+            assert config.llm.api_key == "anthropic-key"
 
-        # Test OpenAI provider
-        config_data = {"llm": {"provider": "openai", "api_key": ""}}
-        config_file.write_text(yaml.dump(config_data))
+            # Test OpenAI provider
+            config_data = {"llm": {"provider": "openai", "api_key": ""}}
+            config_file.write_text(yaml.dump(config_data))
 
-        config = load_config(config_file)
-        assert config.llm.api_key == "openai-key"
+            config = load_config(config_file)
+            assert config.llm.api_key == "openai-key"
 
     def test_default_models_for_anthropic(self, tmp_path, monkeypatch):
         """Should use default Anthropic models when not specified."""
@@ -174,7 +182,9 @@ class TestLoadConfig:
         config_data = {"llm": {"provider": "anthropic", "api_key": "test"}}
         config_file.write_text(yaml.dump(config_data))
 
-        config = load_config(config_file)
+        # Patch load_user_yaml_config to return empty dict (ignore config.user.yaml)
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            config = load_config(config_file)
 
         assert config.llm.model_analysis == MODEL_DEFAULTS["anthropic"]["analysis"]
         assert config.llm.model_generation == MODEL_DEFAULTS["anthropic"]["generation"]
@@ -189,7 +199,9 @@ class TestLoadConfig:
         config_data = {"llm": {"provider": "openai", "api_key": "test"}}
         config_file.write_text(yaml.dump(config_data))
 
-        config = load_config(config_file)
+        # Patch load_user_yaml_config to return empty dict (ignore config.user.yaml)
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            config = load_config(config_file)
 
         assert config.llm.model_analysis == MODEL_DEFAULTS["openai"]["analysis"]
         assert config.llm.model_generation == MODEL_DEFAULTS["openai"]["generation"]
@@ -211,7 +223,9 @@ class TestLoadConfig:
         }
         config_file.write_text(yaml.dump(config_data))
 
-        config = load_config(config_file)
+        # Patch load_user_yaml_config to return empty dict (ignore config.user.yaml)
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            config = load_config(config_file)
 
         assert config.llm.model_analysis == "custom-analysis-model"
         assert config.llm.model_generation == "custom-gen-model"
@@ -224,7 +238,9 @@ class TestLoadConfig:
 
         config_file = tmp_path / "nonexistent.yaml"
 
-        config = load_config(config_file)
+        # Patch load_user_yaml_config to return empty dict (ignore config.user.yaml)
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            config = load_config(config_file)
 
         assert config.plex.music_library == "Music"
         assert config.llm.provider == "gemini"
@@ -243,7 +259,9 @@ class TestLoadConfig:
                     "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
             monkeypatch.delenv(var, raising=False)
 
-        config = load_config(config_file)
+        # Patch load_user_yaml_config to return empty dict (ignore config.user.yaml)
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            config = load_config(config_file)
 
         # The token and api_key are stored, but we verify they exist
         # (actual masking would be in a different layer if needed)
@@ -334,3 +352,145 @@ class TestRemoveEmptyValues:
         result = remove_empty_values(d)
 
         assert result == {"a": {"c": "nested"}, "d": "value"}
+
+
+class TestLocalProviderConfig:
+    """Tests for local LLM provider configuration."""
+
+    def test_loads_ollama_config_from_yaml(self, tmp_path, monkeypatch):
+        """Should load Ollama config from YAML file."""
+        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+                    "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS",
+                    "LLM_MODEL_GENERATION", "OLLAMA_URL"]:
+            monkeypatch.delenv(var, raising=False)
+
+        config_file = tmp_path / "config.yaml"
+        config_data = {
+            "llm": {
+                "provider": "ollama",
+                "ollama_url": "http://192.168.1.100:11434",
+                "model_analysis": "llama3:8b",
+                "model_generation": "llama3:8b",
+            },
+        }
+        config_file.write_text(yaml.dump(config_data))
+
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            config = load_config(config_file)
+
+        assert config.llm.provider == "ollama"
+        assert config.llm.ollama_url == "http://192.168.1.100:11434"
+        assert config.llm.model_analysis == "llama3:8b"
+
+    def test_ollama_url_env_var_override(self, tmp_path, monkeypatch):
+        """OLLAMA_URL env var should override YAML value."""
+        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+                    "GEMINI_API_KEY", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
+            monkeypatch.delenv(var, raising=False)
+
+        config_file = tmp_path / "config.yaml"
+        config_data = {
+            "llm": {
+                "provider": "ollama",
+                "ollama_url": "http://yaml-host:11434",
+            },
+        }
+        config_file.write_text(yaml.dump(config_data))
+
+        monkeypatch.setenv("LLM_PROVIDER", "ollama")
+        monkeypatch.setenv("OLLAMA_URL", "http://env-host:11434")
+
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            config = load_config(config_file)
+
+        assert config.llm.ollama_url == "http://env-host:11434"
+
+    def test_loads_custom_provider_config(self, tmp_path, monkeypatch):
+        """Should load custom provider config from YAML."""
+        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+                    "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS",
+                    "LLM_MODEL_GENERATION", "CUSTOM_LLM_URL", "CUSTOM_CONTEXT_WINDOW"]:
+            monkeypatch.delenv(var, raising=False)
+
+        config_file = tmp_path / "config.yaml"
+        config_data = {
+            "llm": {
+                "provider": "custom",
+                "custom_url": "http://localhost:5000/v1",
+                "custom_context_window": 8192,
+                "model_analysis": "my-model",
+                "model_generation": "my-model",
+            },
+        }
+        config_file.write_text(yaml.dump(config_data))
+
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            config = load_config(config_file)
+
+        assert config.llm.provider == "custom"
+        assert config.llm.custom_url == "http://localhost:5000/v1"
+        assert config.llm.custom_context_window == 8192
+
+    def test_custom_context_window_env_var(self, tmp_path, monkeypatch):
+        """CUSTOM_CONTEXT_WINDOW env var should override YAML."""
+        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+                    "GEMINI_API_KEY", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
+            monkeypatch.delenv(var, raising=False)
+
+        config_file = tmp_path / "config.yaml"
+        config_data = {
+            "llm": {
+                "provider": "custom",
+                "custom_context_window": 4096,
+            },
+        }
+        config_file.write_text(yaml.dump(config_data))
+
+        monkeypatch.setenv("LLM_PROVIDER", "custom")
+        monkeypatch.setenv("CUSTOM_LLM_URL", "http://localhost:5000/v1")
+        monkeypatch.setenv("CUSTOM_CONTEXT_WINDOW", "16384")
+
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            config = load_config(config_file)
+
+        assert config.llm.custom_context_window == 16384
+
+    def test_default_ollama_url(self, tmp_path, monkeypatch):
+        """Should use default Ollama URL when not specified."""
+        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+                    "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS",
+                    "LLM_MODEL_GENERATION", "OLLAMA_URL"]:
+            monkeypatch.delenv(var, raising=False)
+
+        config_file = tmp_path / "config.yaml"
+        config_data = {
+            "llm": {
+                "provider": "ollama",
+            },
+        }
+        config_file.write_text(yaml.dump(config_data))
+
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            config = load_config(config_file)
+
+        assert config.llm.ollama_url == "http://localhost:11434"
+
+    def test_default_custom_context_window(self, tmp_path, monkeypatch):
+        """Should use default custom context window when not specified."""
+        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+                    "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS",
+                    "LLM_MODEL_GENERATION", "CUSTOM_CONTEXT_WINDOW"]:
+            monkeypatch.delenv(var, raising=False)
+
+        config_file = tmp_path / "config.yaml"
+        config_data = {
+            "llm": {
+                "provider": "custom",
+            },
+        }
+        config_file.write_text(yaml.dump(config_data))
+
+        with patch("backend.config.load_user_yaml_config", return_value={}):
+            config = load_config(config_file)
+
+        assert config.llm.custom_context_window == 32768

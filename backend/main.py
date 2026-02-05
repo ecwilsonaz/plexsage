@@ -1,6 +1,7 @@
 """FastAPI application for PlexSage."""
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -35,9 +36,13 @@ from backend.llm_client import (
     get_llm_client,
     init_llm_client,
     get_max_tracks_for_model,
+    get_model_cost,
     estimate_cost_for_model,
-    MODEL_COSTS,
+    list_ollama_models,
+    get_ollama_model_info,
+    get_ollama_status,
 )
+from backend.models import OllamaModelsResponse, OllamaModelInfo, OllamaStatus
 from backend.analyzer import analyze_prompt as do_analyze_prompt, analyze_track as do_analyze_track
 from backend.generator import generate_playlist as do_generate_playlist, generate_playlist_stream
 
@@ -56,7 +61,8 @@ async def lifespan(app: FastAPI):
         )
 
     # Initialize LLM client if configured
-    if config.llm.api_key:
+    # Local providers (ollama, custom) don't need an API key
+    if config.llm.api_key or config.llm.provider in ("ollama", "custom"):
         init_llm_client(config.llm)
 
     yield
@@ -84,8 +90,12 @@ async def health_check() -> HealthResponse:
     # Check actual Plex connection
     plex_connected = plex_client.is_connected() if plex_client else False
 
-    # Check if LLM is configured
+    # Check if LLM is configured (API key for cloud, URL for local providers)
     llm_configured = bool(config.llm.api_key)
+    if config.llm.provider == "ollama" and config.llm.ollama_url:
+        llm_configured = True
+    elif config.llm.provider == "custom" and config.llm.custom_url:
+        llm_configured = True
 
     return HealthResponse(
         status="healthy",
@@ -108,10 +118,22 @@ async def get_configuration() -> ConfigResponse:
     # Calculate recommended max tracks based on generation model
     generation_model = config.llm.model_generation
     analysis_model = config.llm.model_analysis
-    max_tracks = get_max_tracks_for_model(generation_model)
+    max_tracks = get_max_tracks_for_model(generation_model, config=config.llm)
 
     # Get cost rates for generation model (for client-side cost calculation)
-    costs = MODEL_COSTS.get(generation_model, {"input": 1.0, "output": 2.0})
+    # Local providers have zero cost
+    is_local = config.llm.provider in ("ollama", "custom")
+    costs = get_model_cost(generation_model, config.llm)
+
+    # LLM is configured if we have an API key OR if using a local provider with URL
+    llm_configured = bool(config.llm.api_key)
+    if config.llm.provider == "ollama" and config.llm.ollama_url:
+        llm_configured = True
+    elif config.llm.provider == "custom" and config.llm.custom_url:
+        llm_configured = True
+
+    # Check if provider is being set by environment variable
+    provider_from_env = os.environ.get("LLM_PROVIDER") is not None
 
     return ConfigResponse(
         plex_url=config.plex.url,
@@ -119,7 +141,7 @@ async def get_configuration() -> ConfigResponse:
         plex_token_set=bool(config.plex.token),
         music_library=config.plex.music_library,
         llm_provider=config.llm.provider,
-        llm_configured=bool(config.llm.api_key),
+        llm_configured=llm_configured,
         llm_api_key_set=bool(config.llm.api_key),
         model_analysis=analysis_model,
         model_generation=generation_model,
@@ -127,6 +149,12 @@ async def get_configuration() -> ConfigResponse:
         cost_per_million_input=costs["input"],
         cost_per_million_output=costs["output"],
         defaults=config.defaults,
+        ollama_url=config.llm.ollama_url,
+        ollama_context_window=config.llm.ollama_context_window,
+        custom_url=config.llm.custom_url,
+        custom_context_window=config.llm.custom_context_window,
+        is_local_provider=is_local,
+        provider_from_env=provider_from_env,
     )
 
 
@@ -154,7 +182,7 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
             config.plex.music_library,
         )
 
-    if any(k in updates for k in ["llm_provider", "llm_api_key", "model_analysis", "model_generation"]):
+    if any(k in updates for k in ["llm_provider", "llm_api_key", "model_analysis", "model_generation", "ollama_url", "custom_url"]):
         init_llm_client(config.llm)
 
     plex_client = get_plex_client()
@@ -162,10 +190,22 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
     # Calculate recommended max tracks based on generation model
     generation_model = config.llm.model_generation
     analysis_model = config.llm.model_analysis
-    max_tracks = get_max_tracks_for_model(generation_model)
+    max_tracks = get_max_tracks_for_model(generation_model, config=config.llm)
 
     # Get cost rates for generation model (for client-side cost calculation)
-    costs = MODEL_COSTS.get(generation_model, {"input": 1.0, "output": 2.0})
+    # Local providers have zero cost
+    is_local = config.llm.provider in ("ollama", "custom")
+    costs = get_model_cost(generation_model, config.llm)
+
+    # LLM is configured if we have an API key OR if using a local provider with URL
+    llm_configured = bool(config.llm.api_key)
+    if config.llm.provider == "ollama" and config.llm.ollama_url:
+        llm_configured = True
+    elif config.llm.provider == "custom" and config.llm.custom_url:
+        llm_configured = True
+
+    # Check if provider is being set by environment variable
+    provider_from_env = os.environ.get("LLM_PROVIDER") is not None
 
     return ConfigResponse(
         plex_url=config.plex.url,
@@ -173,7 +213,7 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
         plex_token_set=bool(config.plex.token),
         music_library=config.plex.music_library,
         llm_provider=config.llm.provider,
-        llm_configured=bool(config.llm.api_key),
+        llm_configured=llm_configured,
         llm_api_key_set=bool(config.llm.api_key),
         model_analysis=analysis_model,
         model_generation=generation_model,
@@ -181,7 +221,52 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
         cost_per_million_input=costs["input"],
         cost_per_million_output=costs["output"],
         defaults=config.defaults,
+        ollama_url=config.llm.ollama_url,
+        ollama_context_window=config.llm.ollama_context_window,
+        custom_url=config.llm.custom_url,
+        custom_context_window=config.llm.custom_context_window,
+        is_local_provider=is_local,
+        provider_from_env=provider_from_env,
     )
+
+
+# =============================================================================
+# Ollama Endpoints
+# =============================================================================
+
+
+@app.get("/api/ollama/status", response_model=OllamaStatus)
+async def ollama_status(
+    url: str | None = Query(None, description="Ollama URL (optional, defaults to config)")
+) -> OllamaStatus:
+    """Check Ollama connection status."""
+    config = get_config()
+    ollama_url = url or config.llm.ollama_url
+    return await asyncio.to_thread(get_ollama_status, ollama_url)
+
+
+@app.get("/api/ollama/models", response_model=OllamaModelsResponse)
+async def ollama_models(
+    url: str | None = Query(None, description="Ollama URL (optional, defaults to config)")
+) -> OllamaModelsResponse:
+    """List available Ollama models."""
+    config = get_config()
+    ollama_url = url or config.llm.ollama_url
+    return await asyncio.to_thread(list_ollama_models, ollama_url)
+
+
+@app.get("/api/ollama/model-info", response_model=OllamaModelInfo | None)
+async def ollama_model_info(
+    model: str = Query(..., description="Model name"),
+    url: str | None = Query(None, description="Ollama URL (optional, defaults to config)")
+) -> OllamaModelInfo | None:
+    """Get detailed info about an Ollama model."""
+    config = get_config()
+    ollama_url = url or config.llm.ollama_url
+    info = await asyncio.to_thread(get_ollama_model_info, ollama_url, model)
+    if info is None:
+        raise HTTPException(status_code=404, detail=f"Model '{model}' not found")
+    return info
 
 
 # =============================================================================
@@ -307,6 +392,7 @@ async def preview_filters(request: FilterPreviewRequest) -> FilterPreviewRespons
         config.llm.model_generation,
         estimated_input_tokens,
         estimated_output_tokens,
+        config=config.llm,
     )
 
     return FilterPreviewResponse(

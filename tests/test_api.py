@@ -24,6 +24,9 @@ def create_mock_config(
     model_analysis="claude-sonnet-4-5",
     model_generation="claude-haiku-4-5",
     track_count=25,
+    ollama_url="http://localhost:11434",
+    custom_url="",
+    custom_context_window=32768,
 ):
     """Create a properly structured mock config."""
     mock = MagicMock()
@@ -34,6 +37,9 @@ def create_mock_config(
     mock.llm.api_key = llm_api_key
     mock.llm.model_analysis = model_analysis
     mock.llm.model_generation = model_generation
+    mock.llm.ollama_url = ollama_url
+    mock.llm.custom_url = custom_url
+    mock.llm.custom_context_window = custom_context_window
     mock.defaults = DefaultsConfig(track_count=track_count)
     return mock
 
@@ -154,3 +160,131 @@ class TestIndexPage:
         response = client.get("/")
         # Either returns HTML or JSON message
         assert response.status_code == 200
+
+
+class TestOllamaEndpoints:
+    """Tests for Ollama API endpoints."""
+
+    def test_ollama_status_connected(self, client):
+        """GET /api/ollama/status should return connected status."""
+        with patch("backend.main.get_config") as mock_config:
+            with patch("backend.main.get_ollama_status") as mock_status:
+                mock_config.return_value = create_mock_config(
+                    llm_provider="ollama",
+                    ollama_url="http://localhost:11434",
+                )
+                mock_status.return_value = MagicMock(
+                    connected=True,
+                    model_count=3,
+                    error=None,
+                )
+
+                response = client.get("/api/ollama/status")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["connected"] is True
+                assert data["model_count"] == 3
+
+    def test_ollama_status_not_connected(self, client):
+        """GET /api/ollama/status should return error when not connected."""
+        with patch("backend.main.get_config") as mock_config:
+            with patch("backend.main.get_ollama_status") as mock_status:
+                mock_config.return_value = create_mock_config(
+                    llm_provider="ollama",
+                    ollama_url="http://localhost:11434",
+                )
+                mock_status.return_value = MagicMock(
+                    connected=False,
+                    model_count=0,
+                    error="Connection refused",
+                )
+
+                response = client.get("/api/ollama/status")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["connected"] is False
+                assert data["error"] == "Connection refused"
+
+    def test_ollama_models_list(self, client):
+        """GET /api/ollama/models should return list of models."""
+        from backend.models import OllamaModel, OllamaModelsResponse
+
+        with patch("backend.main.get_config") as mock_config:
+            with patch("backend.main.list_ollama_models") as mock_models:
+                mock_config.return_value = create_mock_config(
+                    llm_provider="ollama",
+                    ollama_url="http://localhost:11434",
+                )
+                mock_models.return_value = OllamaModelsResponse(
+                    models=[
+                        OllamaModel(name="llama3:8b", size=4661224676, modified_at="2024-01-15T00:00:00Z"),
+                        OllamaModel(name="mistral:latest", size=3825819904, modified_at="2024-01-14T00:00:00Z"),
+                    ],
+                    error=None,
+                )
+
+                response = client.get("/api/ollama/models")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert len(data["models"]) == 2
+                assert data["models"][0]["name"] == "llama3:8b"
+
+    def test_ollama_model_info(self, client):
+        """GET /api/ollama/model-info should return model details."""
+        from backend.models import OllamaModelInfo
+
+        with patch("backend.main.get_config") as mock_config:
+            with patch("backend.main.get_ollama_model_info") as mock_info:
+                mock_config.return_value = create_mock_config(
+                    llm_provider="ollama",
+                    ollama_url="http://localhost:11434",
+                )
+                mock_info.return_value = OllamaModelInfo(
+                    name="llama3:8b",
+                    context_window=8192,
+                    parameter_size="8B",
+                )
+
+                response = client.get("/api/ollama/model-info?model=llama3:8b")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["name"] == "llama3:8b"
+                assert data["context_window"] == 8192
+
+    def test_ollama_model_info_not_found(self, client):
+        """GET /api/ollama/model-info should return 404 for unknown model."""
+        with patch("backend.main.get_config") as mock_config:
+            with patch("backend.main.get_ollama_model_info") as mock_info:
+                mock_config.return_value = create_mock_config(
+                    llm_provider="ollama",
+                    ollama_url="http://localhost:11434",
+                )
+                mock_info.return_value = None  # Model not found
+
+                response = client.get("/api/ollama/model-info?model=nonexistent")
+
+                assert response.status_code == 404
+
+    def test_ollama_status_with_custom_url(self, client):
+        """GET /api/ollama/status should accept custom URL parameter."""
+        with patch("backend.main.get_config") as mock_config:
+            with patch("backend.main.get_ollama_status") as mock_status:
+                mock_config.return_value = create_mock_config(
+                    llm_provider="ollama",
+                    ollama_url="http://localhost:11434",
+                )
+                mock_status.return_value = MagicMock(
+                    connected=True,
+                    model_count=1,
+                    error=None,
+                )
+
+                response = client.get("/api/ollama/status?url=http://custom-host:11434")
+
+                assert response.status_code == 200
+                # Verify the custom URL was passed
+                mock_status.assert_called_once_with("http://custom-host:11434")
