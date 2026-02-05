@@ -406,6 +406,44 @@ class PlexClient:
         stats = self.get_library_stats()
         return stats.get("decades", [])
 
+    def get_random_tracks(
+        self,
+        count: int,
+        exclude_live: bool = True,
+    ) -> list[Track]:
+        """Get random tracks from the library without loading all tracks.
+
+        Uses Plex's random sort with limit for efficient sampling.
+
+        Args:
+            count: Number of random tracks to fetch
+            exclude_live: Whether to exclude live recordings
+
+        Returns:
+            List of random Track objects
+        """
+        if not self._library:
+            return []
+
+        try:
+            # Fetch more than needed to account for live version filtering
+            fetch_count = int(count * 1.3) if exclude_live else count
+
+            plex_tracks = self._library.search(
+                libtype="track",
+                sort="random",
+                limit=fetch_count,
+            )
+
+            if exclude_live:
+                plex_tracks = [t for t in plex_tracks if not is_live_version(t)]
+
+            tracks = [self._convert_track(t) for t in plex_tracks[:count]]
+            return tracks
+        except Exception as e:
+            logger.exception("Failed to get random tracks: %s", e)
+            raise PlexQueryError(f"Failed to get random tracks: {e}") from e
+
     def search_tracks(self, query: str, limit: int = 20) -> list[Track]:
         """Search for tracks by title or artist.
 

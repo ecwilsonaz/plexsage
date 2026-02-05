@@ -44,46 +44,66 @@ def generate_playlist_stream(
             return
 
         track_cache = get_track_cache()
+        has_filters = genres or decades or min_rating > 0
 
-        # Step 1: Check cache or fetch tracks
-        cached_tracks = track_cache.get(genres, decades, exclude_live, min_rating)
-
-        if cached_tracks is not None:
-            yield emit("progress", {"step": "cache_hit", "message": "Using cached library results..."})
-            filtered_tracks = cached_tracks
-            logger.info("Using %d cached tracks", len(filtered_tracks))
-        else:
-            yield emit("progress", {"step": "fetching", "message": "Fetching tracks from library..."})
-
-            logger.info("Fetching tracks with filters: genres=%s, decades=%s, min_rating=%s", genres, decades, min_rating)
+        # Step 1: Fetch tracks - use random sampling when no filters to avoid loading entire library
+        if not has_filters:
+            # No filters - use efficient random sampling
+            yield emit("progress", {"step": "fetching", "message": "Sampling random tracks from library..."})
+            sample_size = max_tracks_to_ai if max_tracks_to_ai > 0 else 2000
+            logger.info("No filters applied, fetching %d random tracks", sample_size)
             try:
-                filtered_tracks = plex_client.get_tracks_by_filters(
-                    genres=genres,
-                    decades=decades,
+                filtered_tracks = plex_client.get_random_tracks(
+                    count=sample_size,
                     exclude_live=exclude_live,
-                    min_rating=min_rating,
                 )
-                # Cache for potential future use
-                track_cache.set(genres, decades, exclude_live, min_rating, filtered_tracks)
             except PlexQueryError as e:
                 yield emit("error", {"message": f"Plex server error: {e}"})
                 return
+            logger.info("Got %d random tracks", len(filtered_tracks))
+        else:
+            # Filters applied - check cache or fetch with filters
+            cached_tracks = track_cache.get(genres, decades, exclude_live, min_rating)
 
-            logger.info("Found %d tracks matching filters", len(filtered_tracks))
+            if cached_tracks is not None:
+                yield emit("progress", {"step": "cache_hit", "message": "Using cached library results..."})
+                filtered_tracks = cached_tracks
+                logger.info("Using %d cached tracks", len(filtered_tracks))
+            else:
+                yield emit("progress", {"step": "fetching", "message": "Fetching tracks from library..."})
+
+                logger.info("Fetching tracks with filters: genres=%s, decades=%s, min_rating=%s", genres, decades, min_rating)
+                try:
+                    filtered_tracks = plex_client.get_tracks_by_filters(
+                        genres=genres,
+                        decades=decades,
+                        exclude_live=exclude_live,
+                        min_rating=min_rating,
+                    )
+                    # Cache for potential future use
+                    track_cache.set(genres, decades, exclude_live, min_rating, filtered_tracks)
+                except PlexQueryError as e:
+                    yield emit("error", {"message": f"Plex server error: {e}"})
+                    return
+
+                logger.info("Found %d tracks matching filters", len(filtered_tracks))
 
         if not filtered_tracks:
             yield emit("error", {"message": "No tracks match the selected filters. Try broadening your selection."})
             return
 
-        # Step 2: Apply limits
-        yield emit("progress", {"step": "filtering", "message": f"Found {len(filtered_tracks)} matching tracks..."})
+        # Step 2: Apply limits (only needed when filters are applied)
+        if has_filters:
+            yield emit("progress", {"step": "filtering", "message": f"Found {len(filtered_tracks)} matching tracks..."})
 
-        if max_tracks_to_ai > 0 and len(filtered_tracks) > max_tracks_to_ai:
-            logger.info("Sampling %d tracks from %d", max_tracks_to_ai, len(filtered_tracks))
-            filtered_tracks = random.sample(filtered_tracks, max_tracks_to_ai)
-        elif len(filtered_tracks) > 2000:
-            logger.info("Hard cap: sampling 2000 tracks from %d", len(filtered_tracks))
-            filtered_tracks = random.sample(filtered_tracks, 2000)
+            if max_tracks_to_ai > 0 and len(filtered_tracks) > max_tracks_to_ai:
+                logger.info("Sampling %d tracks from %d", max_tracks_to_ai, len(filtered_tracks))
+                filtered_tracks = random.sample(filtered_tracks, max_tracks_to_ai)
+            elif len(filtered_tracks) > 2000:
+                logger.info("Hard cap: sampling 2000 tracks from %d", len(filtered_tracks))
+                filtered_tracks = random.sample(filtered_tracks, 2000)
+        else:
+            yield emit("progress", {"step": "filtering", "message": f"Using {len(filtered_tracks)} random tracks..."})
 
         # Step 3: Build track list
         yield emit("progress", {"step": "preparing", "message": f"Preparing {len(filtered_tracks)} tracks for AI..."})
@@ -236,31 +256,47 @@ def generate_playlist(
     if not plex_client:
         raise RuntimeError("Plex client not initialized")
 
-    # Get filtered tracks from library
-    logger.info("Fetching tracks with filters: genres=%s, decades=%s, min_rating=%s", genres, decades, min_rating)
-    try:
-        filtered_tracks = plex_client.get_tracks_by_filters(
-            genres=genres,
-            decades=decades,
-            exclude_live=exclude_live,
-            min_rating=min_rating,
-        )
-    except PlexQueryError as e:
-        raise RuntimeError(f"Plex server error while fetching tracks: {e}") from e
+    # Get tracks from library
+    has_filters = genres or decades or min_rating > 0
 
-    logger.info("Found %d tracks matching filters", len(filtered_tracks))
+    if not has_filters:
+        # No filters - use efficient random sampling
+        sample_size = max_tracks_to_ai if max_tracks_to_ai > 0 else 2000
+        logger.info("No filters applied, fetching %d random tracks", sample_size)
+        try:
+            filtered_tracks = plex_client.get_random_tracks(
+                count=sample_size,
+                exclude_live=exclude_live,
+            )
+        except PlexQueryError as e:
+            raise RuntimeError(f"Plex server error while fetching tracks: {e}") from e
+        logger.info("Got %d random tracks", len(filtered_tracks))
+    else:
+        # Filters applied - fetch with filters
+        logger.info("Fetching tracks with filters: genres=%s, decades=%s, min_rating=%s", genres, decades, min_rating)
+        try:
+            filtered_tracks = plex_client.get_tracks_by_filters(
+                genres=genres,
+                decades=decades,
+                exclude_live=exclude_live,
+                min_rating=min_rating,
+            )
+        except PlexQueryError as e:
+            raise RuntimeError(f"Plex server error while fetching tracks: {e}") from e
+
+        logger.info("Found %d tracks matching filters", len(filtered_tracks))
+
+        # Apply max_tracks_to_ai limit with random sampling
+        if max_tracks_to_ai > 0 and len(filtered_tracks) > max_tracks_to_ai:
+            logger.info("Sampling %d tracks from %d", max_tracks_to_ai, len(filtered_tracks))
+            filtered_tracks = random.sample(filtered_tracks, max_tracks_to_ai)
+        elif len(filtered_tracks) > 2000:
+            # Hard cap at 2000 to stay within context limits
+            logger.info("Hard cap: sampling 2000 tracks from %d", len(filtered_tracks))
+            filtered_tracks = random.sample(filtered_tracks, 2000)
 
     if not filtered_tracks:
         raise ValueError("No tracks match the selected filters. Try broadening your selection.")
-
-    # Apply max_tracks_to_ai limit with random sampling
-    if max_tracks_to_ai > 0 and len(filtered_tracks) > max_tracks_to_ai:
-        logger.info("Sampling %d tracks from %d", max_tracks_to_ai, len(filtered_tracks))
-        filtered_tracks = random.sample(filtered_tracks, max_tracks_to_ai)
-    elif len(filtered_tracks) > 2000:
-        # Hard cap at 2000 to stay within context limits
-        logger.info("Hard cap: sampling 2000 tracks from %d", len(filtered_tracks))
-        filtered_tracks = random.sample(filtered_tracks, 2000)
 
     # Build the track list for the LLM
     logger.debug("Building track list for %d tracks", len(filtered_tracks))

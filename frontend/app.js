@@ -256,13 +256,38 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
         }
     };
 
+    // Timeout handling - abort if no progress for 60 seconds
+    let timeoutId = null;
+    let abortController = new AbortController();
+    const TIMEOUT_MS = 60000;
+
+    function resetTimeout() {
+        if (timeoutId) clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+            abortController.abort();
+            progressQueue.reset();
+            onError(new Error('Request timed out. Try selecting some filters to reduce the library size.'));
+        }, TIMEOUT_MS);
+    }
+
+    function clearTimeoutHandler() {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+        }
+    }
+
+    resetTimeout();
+
     // Use fetch with streaming for SSE (EventSource doesn't support POST)
     fetch('/api/generate/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
+        signal: abortController.signal,
     }).then(response => {
         if (!response.ok) {
+            clearTimeoutHandler();
             throw new Error(`HTTP ${response.status}`);
         }
 
@@ -272,7 +297,13 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
 
         function processStream() {
             reader.read().then(({ done, value }) => {
-                if (done) return;
+                if (done) {
+                    clearTimeoutHandler();
+                    return;
+                }
+
+                // Reset timeout on each chunk received
+                resetTimeout();
 
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
@@ -288,9 +319,11 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
                             if (currentEvent === 'progress') {
                                 progressQueue.enqueue(data.step, data.message);
                             } else if (currentEvent === 'complete') {
+                                clearTimeoutHandler();
                                 // Wait for queue to drain before completing
                                 progressQueue.markComplete(data, onComplete);
                             } else if (currentEvent === 'error') {
+                                clearTimeoutHandler();
                                 progressQueue.reset();
                                 onError(new Error(data.message));
                             }
@@ -303,15 +336,21 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
 
                 processStream();
             }).catch(err => {
+                clearTimeoutHandler();
                 progressQueue.reset();
-                onError(err);
+                if (err.name !== 'AbortError') {
+                    onError(err);
+                }
             });
         }
 
         processStream();
     }).catch(err => {
+        clearTimeoutHandler();
         progressQueue.reset();
-        onError(err);
+        if (err.name !== 'AbortError') {
+            onError(err);
+        }
     });
 }
 
