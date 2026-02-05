@@ -1,123 +1,30 @@
 # PlexSage
 
-A self-hosted web application that generates Plex music playlists using LLMs with **actual library awareness**. Unlike other AI playlist tools, PlexSage knows exactly what's in your music library and only suggests tracks you can actually play.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io%2Fecwilsonaz%2Fplexsage-blue)](https://ghcr.io/ecwilsonaz/plexsage)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-<!-- ![PlexSage Screenshot](docs/images/screenshot-main.png) -->
+**AI-powered playlist generation for Plex—using only tracks you actually own.**
 
-## Why PlexSage?
+PlexSage is a self-hosted web app that creates music playlists by combining LLM intelligence with your Plex library. Every track it suggests is guaranteed playable because it only considers music you have.
 
-**The problem with existing AI playlist tools**: Services like Spotify's AI DJ or third-party tools like SonicSage generate playlists based on what *might* sound good together—but they have no idea what's actually in your library. You end up with playlists full of tracks you don't own, or worse, a frustrating mix of playable and unplayable suggestions.
+![PlexSage Screenshot](docs/images/screenshot-results.png)
 
-**PlexSage is different**. It uses a filter-first architecture that:
+## Demo
 
-1. **Starts with your library** — Only tracks you actually own are ever considered
-2. **Filters before generating** — Narrow down by genre, decade, and rating before the AI even sees the list
-3. **Guarantees 100% playable results** — Every single track in every playlist exists in your Plex library
-4. **Scales to large libraries** — Handles 50,000+ track libraries through smart sampling and context management
+### Prompt-Based Flow
+Describe what you want in natural language, refine filters, and generate a playlist:
 
-If you've ever been frustrated by AI recommendations for music you don't have, PlexSage solves that problem.
+https://github.com/user-attachments/assets/ae605d5a-676b-49ea-ae3a-3da79b01a97f
 
-## Features
+### Seed-Based Flow
+Start from a song you love and explore its musical dimensions:
 
-### Step 1: Choose How to Start
-
-PlexSage offers two ways to begin creating a playlist:
-
-**Option A: Describe what you want** — Enter a natural language prompt like:
-- "Melancholy 90s alternative for a rainy day"
-- "Upbeat instrumental jazz for a dinner party"
-- "Late night electronic music, nothing too aggressive"
-
-The AI first analyzes your request and suggests appropriate genre and decade filters. Your prompt is saved and sent again later along with the filtered track list for final curation.
-
-![Prompt Input Screenshot](docs/images/screenshot-prompt.png)
-
-**Option B: Start from a song you love** — Search for a track in your library to use as a starting point.
-
-![Seed Track Screenshot](docs/images/screenshot-seed.png)
-
-### Step 1b: Choose What to Explore (Seed Track Only)
-
-After selecting a seed track, PlexSage analyzes it and presents musical dimensions you can explore: mood, era, instrumentation, genre influences, lyrical themes, production style, and more. Each dimension is specific to your chosen track.
-
-Select which dimensions you want more of—maybe you love the melancholy mood but want to explore different eras, or you want to stay in the same genre but find tracks with similar instrumentation. Your selections guide what the AI looks for.
-
-![Dimensions Screenshot](docs/images/screenshot-seed-2.png)
-
-![Dimensions Selection Screenshot](docs/images/screenshot-seed-3.png)
-
-### Step 2: Refine Your Filters
-
-Before the AI sees anything, you control exactly what pool of tracks it can choose from:
-
-- **Genres** — Select one or many from your library's actual genres
-- **Decades** — Filter by era (60s, 70s, 80s, etc.)
-- **Minimum Rating** — Only include tracks you've rated 3+ stars, 4+ stars, etc.
-- **Exclude Live Versions** — Automatically filter out concert recordings
-
-The filter screen shows exactly how many tracks match your selection in real-time.
-
-![Filters Screenshot](docs/images/screenshot-filters.png)
-
-### Step 3: Control Cost & Variety
-
-Choose how many tracks to send to the AI:
-
-- **Fewer tracks** (100-500) — Lower cost, faster generation, good for focused playlists
-- **More tracks** (1,000-5,000) — Higher variety, better for broad requests
-- **Maximum** (up to 18,000 with Gemini) — Full library exploration
-
-PlexSage shows estimated cost before you generate. Different LLMs have different limits:
-- Gemini: ~18,000 tracks (1M context)
-- Claude: ~3,500 tracks (200K context)
-- GPT-4: ~2,300 tracks (128K context)
-
-The UI automatically adjusts available options based on your configured model.
-
-![Filters Screenshot](docs/images/screenshot-filters-2.png)
-
-### Step 4: Generate & Review
-
-Hit generate and watch the progress indicators as PlexSage:
-1. Fetches tracks matching your filters from Plex
-2. Sends your original prompt + the filtered track list to the AI
-3. AI selects tracks that best match your request
-4. Selections are fuzzy-matched back to your library
-
-The AI sees both what you asked for *and* what's available—so it makes informed choices from tracks you actually own. Review your playlist, remove any tracks you don't want, rename it, and see the actual token count and cost for the session.
-
-![Results Screenshot](docs/images/screenshot-results.png)
-
-### Step 5: Save to Plex
-
-One click saves your playlist directly to Plex, ready to play in Plexamp or any Plex client.
-
-![Save Screenshot](docs/images/screenshot-save.png)
+<!-- TODO: Add seed-based demo video -->
 
 ---
 
-### Multi-Provider Support
-
-Bring your own API key from any supported provider:
-
-| Provider | Max Tracks | Cost | Notes |
-|----------|------------|------|-------|
-| **Google Gemini** | ~18,000 | Lowest | Best for large libraries |
-| **Anthropic Claude** | ~3,500 | Medium | Nuanced recommendations |
-| **OpenAI GPT** | ~2,300 | Medium | Solid all-around |
-
-PlexSage auto-detects your provider based on which API key you configure.
-
 ## Quick Start
-
-### Prerequisites
-
-- Docker
-- A Plex server with a music library
-- [Plex authentication token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)
-- API key from Anthropic, OpenAI, or Google
-
-### Docker Run
 
 ```bash
 docker run -d \
@@ -130,11 +37,104 @@ docker run -d \
   ghcr.io/ecwilsonaz/plexsage:latest
 ```
 
-Then open http://localhost:8765
+Open **http://localhost:8765** and start creating playlists.
 
-### Docker Compose
+**Requirements:** Docker, a Plex server with music, a [Plex token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/), and an API key from Google, Anthropic, or OpenAI.
 
-1. Create a directory and download the compose file:
+---
+
+## Contents
+
+- [Demo](#demo)
+- [Why PlexSage?](#why-plexsage)
+- [Features](#features)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [How It Works](#how-it-works)
+- [Development](#development)
+- [API Reference](#api-reference)
+
+---
+
+## Why PlexSage?
+
+**Plex users with personal music libraries have few good options for AI playlists.**
+
+Plexamp's built-in Sonic Sage used ChatGPT to generate playlists, but it was designed around Tidal streaming. The AI recommended tracks from an unlimited catalog, and Tidal made them playable. The "limit to library" setting just hid results you didn't own—so if you asked for 25 tracks and only 4 existed in your library, you got a 4-track playlist.
+
+When [Tidal integration ended in October 2024](https://forums.plex.tv/t/tidal-integration-with-plex-ending-october-28-2024/885728), Sonic Sage lost its foundation. Generic tools like ChatGPT have the same problem: they recommend from an infinite catalog with no awareness of what you actually own.
+
+**PlexSage inverts the approach:**
+
+| Filter-Last (Sonic Sage, ChatGPT) | Filter-First (PlexSage) |
+|-----------------------------------|-------------------------|
+| AI recommends from infinite catalog | AI only sees your library |
+| Hide missing tracks after | No missing tracks possible |
+| Near-empty playlists | Full playlists, every time |
+
+The result: every track in every playlist exists in your Plex library and plays immediately.
+
+---
+
+## Features
+
+### Two Ways to Start
+
+**Describe what you want** — Natural language prompts like:
+- "Melancholy 90s alternative for a rainy day"
+- "Upbeat instrumental jazz for a dinner party"
+- "Late night electronic, nothing too aggressive"
+
+**Start from a song** — Pick a track you love, then explore musical dimensions: mood, era, instrumentation, genre, production style. Select which qualities you want more of.
+
+### Smart Filtering
+
+Before the AI sees anything, you control the pool:
+- **Genres** — Select from your library's actual genre tags
+- **Decades** — Filter by era
+- **Minimum rating** — Only tracks rated 3+, 4+, etc.
+- **Exclude live versions** — Skip concert recordings automatically
+
+Real-time track counts show exactly how your filters narrow results.
+
+### Cost Control
+
+Choose how many tracks to send to the AI:
+
+| Track Count | Use Case | Typical Cost |
+|-------------|----------|--------------|
+| 100–500 | Focused playlists, quick generation | Pennies |
+| 1,000–5,000 | Broad requests, more variety | Cents |
+| Up to 18,000 | Full library exploration (Gemini only) | Under $0.50 |
+
+Estimated cost displays before you generate. No surprises.
+
+### Multi-Provider Support
+
+Bring your own API key:
+
+| Provider | Max Tracks | Best For |
+|----------|------------|----------|
+| **Google Gemini** | ~18,000 | Large libraries, lowest cost |
+| **Anthropic Claude** | ~3,500 | Nuanced recommendations |
+| **OpenAI GPT** | ~2,300 | Solid all-around |
+
+PlexSage auto-detects your provider based on which key you configure.
+
+### Review and Save
+
+- Preview tracks with album art before saving
+- Remove tracks you don't want
+- Rename the playlist
+- See actual token usage and cost
+- One-click save to Plex
+
+---
+
+## Installation
+
+### Docker Compose (Recommended)
+
 ```bash
 mkdir plexsage && cd plexsage
 curl -O https://raw.githubusercontent.com/ecwilsonaz/plexsage/main/docker-compose.yml
@@ -142,7 +142,8 @@ curl -O https://raw.githubusercontent.com/ecwilsonaz/plexsage/main/.env.example
 mv .env.example .env
 ```
 
-2. Edit `.env` with your credentials:
+Edit `.env`:
+
 ```bash
 PLEX_URL=http://your-plex-server:32400
 PLEX_TOKEN=your-plex-token
@@ -153,68 +154,60 @@ GEMINI_API_KEY=your-gemini-key
 # OPENAI_API_KEY=sk-your-key
 ```
 
-3. Start:
+Start:
+
 ```bash
 docker compose up -d
 ```
 
-## NAS Deployment
+### NAS Platforms
 
-PlexSage is available as a pre-built Docker image: `ghcr.io/ecwilsonaz/plexsage:latest`
+<details>
+<summary><strong>Synology (Container Manager)</strong></summary>
 
-### Synology (Container Manager)
+**GUI:**
+1. **Container Manager** → **Registry** → Search `ghcr.io/ecwilsonaz/plexsage`
+2. Download `latest` tag
+3. **Container** → **Create**
+4. Port: 8765 → 8765
+5. Add environment variables: `PLEX_URL`, `PLEX_TOKEN`, `GEMINI_API_KEY`
 
-**Option A: GUI Setup**
-
-1. Open **Container Manager** → **Registry** → Search for `ghcr.io/ecwilsonaz/plexsage`
-2. Download the `latest` tag
-3. Go to **Container** → **Create**
-4. Configure:
-   - **Port**: Local 8765 → Container 8765
-   - **Environment**:
-     - `PLEX_URL` = `http://your-nas-ip:32400`
-     - `PLEX_TOKEN` = your token
-     - `GEMINI_API_KEY` = your key (or ANTHROPIC/OPENAI)
-
-**Option B: Docker Compose**
-
-1. SSH into your Synology:
+**Docker Compose:**
 ```bash
 mkdir -p /volume1/docker/plexsage && cd /volume1/docker/plexsage
 curl -O https://raw.githubusercontent.com/ecwilsonaz/plexsage/main/docker-compose.yml
 curl -O https://raw.githubusercontent.com/ecwilsonaz/plexsage/main/.env.example
-mv .env.example .env
-nano .env  # Edit with your credentials
+mv .env.example .env && nano .env
 ```
+Then in **Container Manager** → **Project** → **Create**, point to `/volume1/docker/plexsage`.
 
-2. In **Container Manager** → **Project** → **Create**:
-   - Path: `/volume1/docker/plexsage`
-   - Source: Use existing docker-compose.yml
+</details>
 
-### Unraid
+<details>
+<summary><strong>Unraid</strong></summary>
 
-1. Go to **Docker** → **Add Container**
-2. Configure:
-   - **Repository**: `ghcr.io/ecwilsonaz/plexsage:latest`
-   - **Port**: 8765 → 8765
-   - **Variables**:
-     - `PLEX_URL` = `http://your-unraid-ip:32400`
-     - `PLEX_TOKEN` = your token
-     - `GEMINI_API_KEY` = your key
+1. **Docker** → **Add Container**
+2. Repository: `ghcr.io/ecwilsonaz/plexsage:latest`
+3. Port: 8765 → 8765
+4. Add variables: `PLEX_URL`, `PLEX_TOKEN`, `GEMINI_API_KEY`
 
-### TrueNAS SCALE
+</details>
+
+<details>
+<summary><strong>TrueNAS SCALE</strong></summary>
 
 1. **Apps** → **Discover Apps** → **Custom App**
-2. Configure:
-   - **Image**: `ghcr.io/ecwilsonaz/plexsage`
-   - **Tag**: `latest`
-   - **Port**: 8765
-   - **Environment Variables**: Add PLEX_URL, PLEX_TOKEN, and your LLM API key
+2. Image: `ghcr.io/ecwilsonaz/plexsage`, Tag: `latest`
+3. Port: 8765
+4. Add environment variables
 
-### Portainer
+</details>
 
-1. **Stacks** → **Add Stack**
-2. Paste:
+<details>
+<summary><strong>Portainer</strong></summary>
+
+**Stacks** → **Add Stack**:
+
 ```yaml
 services:
   plexsage:
@@ -228,41 +221,27 @@ services:
     restart: unless-stopped
 ```
 
-## LLM Providers
+</details>
 
-PlexSage auto-detects your provider based on which API key is set.
-
-| Provider | Models | Max Tracks | Cost | Notes |
-|----------|--------|------------|------|-------|
-| **Gemini** | gemini-2.5-flash | ~18,000 | Lowest | Great for large libraries |
-| **Anthropic** | claude-sonnet-4-5, claude-haiku-4-5 | ~3,500 | Medium | Nuanced recommendations |
-| **OpenAI** | gpt-4.1, gpt-4.1-mini | ~2,300 | Medium | Solid all-around choice |
-
-### Two-Model Strategy
-
-PlexSage uses two models by default:
-- **Analysis model** (smarter): Understands your prompt, suggests filters, analyzes seed tracks
-- **Generation model** (cheaper): Selects tracks from the filtered list
-
-This balances quality and cost. Set `smart_generation: true` in config to use the analysis model for everything (higher quality, ~3-5x cost).
+---
 
 ## Configuration
 
 ### Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `PLEX_URL` | Your Plex server URL |
-| `PLEX_TOKEN` | Plex authentication token |
-| `PLEX_MUSIC_LIBRARY` | Music library name (default: "Music") |
-| `LLM_PROVIDER` | anthropic, openai, or gemini (auto-detected if not set) |
-| `ANTHROPIC_API_KEY` | Anthropic API key |
-| `OPENAI_API_KEY` | OpenAI API key |
-| `GEMINI_API_KEY` | Google Gemini API key |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PLEX_URL` | Yes | Plex server URL (e.g., `http://192.168.1.100:32400`) |
+| `PLEX_TOKEN` | Yes | [Plex authentication token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) |
+| `GEMINI_API_KEY` | One required | Google Gemini API key |
+| `ANTHROPIC_API_KEY` | One required | Anthropic API key |
+| `OPENAI_API_KEY` | One required | OpenAI API key |
+| `PLEX_MUSIC_LIBRARY` | No | Library name if not "Music" |
+| `LLM_PROVIDER` | No | Force provider (auto-detected from API key) |
 
-### Optional: config.yaml
+### Advanced: config.yaml
 
-For additional customization, mount a config file:
+Mount a config file for additional options:
 
 ```yaml
 plex:
@@ -272,24 +251,59 @@ llm:
   provider: "gemini"
   model_analysis: "gemini-2.5-flash"
   model_generation: "gemini-2.5-flash"
-  smart_generation: false
+  smart_generation: false  # true = use smarter model for both (higher quality, ~3-5x cost)
 
 defaults:
   track_count: 25
 ```
 
+### Model Selection
+
+PlexSage uses a two-model strategy by default:
+
+| Role | Purpose | Models Used |
+|------|---------|-------------|
+| **Analysis** | Interpret prompts, suggest filters, analyze seed tracks | claude-sonnet-4-5 / gpt-4.1 / gemini-2.5-flash |
+| **Generation** | Select tracks from filtered list | claude-haiku-4-5 / gpt-4.1-mini / gemini-2.5-flash |
+
+This balances quality with cost. Enable `smart_generation: true` to use the analysis model for everything.
+
+---
+
 ## How It Works
 
-PlexSage uses a **filter-first architecture** to handle large libraries:
+PlexSage uses a **filter-first architecture** designed for large libraries (50,000+ tracks):
 
-1. **Analyze**: LLM interprets your prompt and suggests genre/decade filters
-2. **Filter**: Library is narrowed to matching tracks (e.g., "90s Alternative" → 2,000 tracks)
-3. **Sample**: If still too large, randomly samples tracks to fit context limits
-4. **Generate**: Filtered track list sent to LLM for curation
-5. **Match**: LLM selections are fuzzy-matched back to your library
-6. **Save**: Playlist is created in Plex
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. ANALYZE                                                      │
+│     LLM interprets your prompt → suggests genre/decade filters   │
+├─────────────────────────────────────────────────────────────────┤
+│  2. FILTER                                                       │
+│     Plex library narrowed to matching tracks                     │
+│     "90s Alternative" → 2,000 tracks                             │
+├─────────────────────────────────────────────────────────────────┤
+│  3. SAMPLE                                                       │
+│     If too large for context, randomly sample                    │
+│     Fits within model's token limits                             │
+├─────────────────────────────────────────────────────────────────┤
+│  4. GENERATE                                                     │
+│     Filtered track list + prompt sent to LLM                     │
+│     LLM selects best matches from available tracks               │
+├─────────────────────────────────────────────────────────────────┤
+│  5. MATCH                                                        │
+│     Fuzzy matching links LLM selections to library               │
+│     Handles minor spelling/formatting differences                │
+├─────────────────────────────────────────────────────────────────┤
+│  6. SAVE                                                         │
+│     Playlist created in Plex                                     │
+│     Ready in Plexamp or any Plex client                          │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-This ensures every track exists in your library while keeping costs manageable for 50,000+ track libraries.
+This ensures every track exists in your library while keeping API costs manageable.
+
+---
 
 ## Development
 
@@ -298,13 +312,10 @@ This ensures every track exists in your library while keeping costs manageable f
 ```bash
 git clone https://github.com/ecwilsonaz/plexsage.git
 cd plexsage
-
 python -m venv venv
 source venv/bin/activate
-
 pip install -r requirements.txt
 
-# Set environment variables (or use .env file)
 export PLEX_URL=http://your-plex-server:32400
 export PLEX_TOKEN=your-plex-token
 export GEMINI_API_KEY=your-key
@@ -312,30 +323,35 @@ export GEMINI_API_KEY=your-key
 uvicorn backend.main:app --reload --port 8765
 ```
 
-### Running Tests
+### Testing
 
 ```bash
 pytest tests/ -v
 ```
 
-## API
+### Tech Stack
 
-Interactive API documentation available at `/docs` when running.
+- **Backend:** Python 3.11+, FastAPI, python-plexapi, rapidfuzz
+- **Frontend:** Vanilla HTML/CSS/JS (no build step)
+- **LLM SDKs:** anthropic, openai, google-generativeai
+- **Deployment:** Docker
 
-Key endpoints:
-- `GET /api/health` - Health check
-- `GET /api/config` - Current configuration
-- `GET /api/library/stats` - Library statistics
-- `POST /api/analyze/prompt` - Analyze natural language prompt
-- `POST /api/generate` - Generate playlist
-- `POST /api/playlist` - Save playlist to Plex
+---
 
-## Tech Stack
+## API Reference
 
-- **Backend**: Python 3.11+, FastAPI, python-plexapi, rapidfuzz
-- **Frontend**: Vanilla HTML/CSS/JS (no build step)
-- **LLM SDKs**: anthropic, openai, google-generativeai
-- **Deployment**: Docker
+Interactive documentation available at `/docs` when running.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/health` | GET | Health check |
+| `/api/config` | GET | Current configuration |
+| `/api/library/stats` | GET | Library statistics |
+| `/api/analyze/prompt` | POST | Analyze natural language prompt |
+| `/api/generate` | POST | Generate playlist |
+| `/api/playlist` | POST | Save playlist to Plex |
+
+---
 
 ## License
 
