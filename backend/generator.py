@@ -176,15 +176,29 @@ def generate_playlist_stream(
                     break
 
         # Step 7: Complete
+        logger.info("Track matching complete. Matched %d tracks", len(matched_tracks))
+        logger.info("Emitting 'Playlist ready!' progress event")
         yield emit("progress", {"step": "complete", "message": "Playlist ready!"})
 
-        result = GenerateResponse(
-            tracks=matched_tracks,
-            token_count=response.total_tokens,
-            estimated_cost=response.estimated_cost(),
-        )
+        logger.info("Building GenerateResponse: tokens=%s, cost=%s",
+                    getattr(response, 'total_tokens', 'N/A'),
+                    response.estimated_cost() if response else 'N/A')
 
+        try:
+            result = GenerateResponse(
+                tracks=matched_tracks,
+                token_count=response.total_tokens,
+                estimated_cost=response.estimated_cost(),
+            )
+            logger.info("GenerateResponse built successfully with %d tracks", len(result.tracks))
+        except Exception as e:
+            logger.exception("Failed to build GenerateResponse: %s", e)
+            yield emit("error", {"message": f"Failed to build response: {e}"})
+            return
+
+        logger.info("Emitting complete event")
         yield emit("complete", result.model_dump(mode="json"))
+        logger.info("Complete event emitted successfully")
 
     except Exception as e:
         logger.exception("Error during playlist generation")

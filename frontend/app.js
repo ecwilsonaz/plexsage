@@ -225,10 +225,12 @@ const progressQueue = {
     },
 
     finish() {
+        console.log('[MediaSage] progressQueue.finish() called, hasCallback:', !!this.onComplete, 'hasData:', !!this.completeData);
         const callback = this.onComplete;
         const data = this.completeData;
         this.reset();
         if (callback && data) {
+            console.log('[MediaSage] Calling onComplete callback with', data.tracks?.length || 0, 'tracks');
             callback(data);
         }
     },
@@ -339,6 +341,7 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
                             if (currentEvent === 'progress') {
                                 progressQueue.enqueue(data.step, data.message);
                             } else if (currentEvent === 'complete') {
+                                console.log('[MediaSage] Complete event received:', JSON.stringify(data).substring(0, 200));
                                 clearTimeoutHandler();
                                 // Wait for queue to drain before completing
                                 progressQueue.markComplete(data, onComplete);
