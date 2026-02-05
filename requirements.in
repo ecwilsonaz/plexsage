@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+plexapi
+anthropic
+openai
+google-genai
+pydantic
+pydantic-settings
+pyyaml
+python-dotenv
+rapidfuzz
+unidecode
+httpx
