@@ -481,8 +481,12 @@ function updateFilters() {
     });
 
     // Update max tracks to AI buttons
+    const maxAllowed = state.config?.max_tracks_to_ai || 3500;
     document.querySelectorAll('.limit-btn').forEach(btn => {
-        btn.classList.toggle('active', parseInt(btn.dataset.limit) === state.maxTracksToAI);
+        const limit = parseInt(btn.dataset.limit);
+        const isActive = limit === state.maxTracksToAI ||
+            (limit === 0 && state.maxTracksToAI >= maxAllowed);
+        btn.classList.toggle('active', isActive);
     });
 
     // Update checkboxes
@@ -543,6 +547,10 @@ function updateTrackLimitButtons() {
     // Re-attach event listeners (local recalculation - no API call needed)
     container.querySelectorAll('.limit-btn').forEach(btn => {
         btn.addEventListener('click', () => {
+            // Update active state visually
+            container.querySelectorAll('.limit-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
             const limit = parseInt(btn.dataset.limit);
             state.maxTracksToAI = limit === 0 ? maxAllowed : limit;
             updateFilters();
