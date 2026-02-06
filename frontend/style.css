@@ -1210,6 +1210,16 @@ input[type="number"]:focus {
     to { transform: translate(-50%, 0); opacity: 1; }
 }
 
+@keyframes slideUpFromBottom {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+}
+
+@keyframes fadeInBackdrop {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
 /* Sync Modal */
 .sync-modal {
     position: fixed;
@@ -1378,7 +1388,7 @@ input[type="number"]:focus {
     right: 0;
     bottom: 0;
     background: rgba(0, 0, 0, 0.5);
-    animation: fadeIn var(--transition-fast);
+    animation: fadeInBackdrop 200ms ease-out;
 }
 
 .bottom-sheet-content {
@@ -1388,7 +1398,7 @@ input[type="number"]:focus {
     padding: var(--spacing-md) var(--spacing-lg) var(--spacing-xl);
     max-height: 60vh;
     overflow-y: auto;
-    animation: slideUp var(--transition-normal);
+    animation: slideUpFromBottom 250ms ease-out;
 }
 
 .bottom-sheet-handle {
