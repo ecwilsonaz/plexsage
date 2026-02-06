@@ -12,6 +12,7 @@ from starlette.responses import StreamingResponse
 import httpx
 
 from backend.config import get_config, update_config_values
+from backend.version import get_version
 from backend.models import (
     AnalyzePromptRequest,
     AnalyzePromptResponse,
@@ -76,7 +77,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="MediaSage",
     description="Plex playlist generator powered by LLMs",
-    version="0.1.0",
+    version=get_version(),
     lifespan=lifespan,
 )
 

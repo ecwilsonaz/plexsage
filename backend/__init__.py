@@ -1,3 +1,5 @@
 """MediaSage - Plex playlist generator powered by LLMs."""
 
-__version__ = "0.1.0"
+from backend.version import get_version
+
+__version__ = get_version()
