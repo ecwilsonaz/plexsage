@@ -63,6 +63,8 @@ jiter==0.13.0
     # via
     #   anthropic
     #   openai
+json-repair==0.56.0
+    # via -r requirements.in
 openai==2.16.0
     # via -r requirements.in
 plexapi==4.18.0

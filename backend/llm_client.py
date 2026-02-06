@@ -10,6 +10,7 @@ import anthropic
 from google import genai
 from google.genai import types as genai_types
 import httpx
+from json_repair import repair_json
 import openai
 
 from backend.models import LLMConfig, OllamaModel, OllamaModelInfo, OllamaModelsResponse, OllamaStatus
@@ -457,19 +458,29 @@ class LLMClient:
         try:
             return json.loads(content)
         except json.JSONDecodeError as e:
-            # If "Extra data" error, try to extract just the JSON portion
+            original_error = e
+
+            # Strategy 1: If "Extra data" error, try to extract just the JSON portion
             if "Extra data" in str(e):
                 extracted = self._extract_json_bounds(content)
                 if extracted:
                     try:
                         return json.loads(extracted)
                     except json.JSONDecodeError:
-                        pass  # Fall through to error
+                        pass  # Continue to next strategy
 
-            # Include first 200 chars of content for debugging
+            # Strategy 2: Use json-repair library to fix common LLM JSON issues
+            # (trailing commas, unescaped quotes, single quotes, etc.)
+            try:
+                repaired = repair_json(content, return_objects=True)
+                return repaired
+            except Exception:
+                pass  # Fall through to error
+
+            # All strategies failed - report original error
             preview = content[:200] + "..." if len(content) > 200 else content
             raise ValueError(
-                f"Failed to parse LLM response as JSON: {e}\n"
+                f"Failed to parse LLM response as JSON: {original_error}\n"
                 f"Response preview: {preview}"
             )
 

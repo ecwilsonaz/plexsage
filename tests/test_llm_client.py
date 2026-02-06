@@ -671,3 +671,83 @@ class TestJsonParsing:
         content = '[{"reason": "This track [live] is great"}] Some explanation'
         result = client._extract_json_bounds(content)
         assert result == '[{"reason": "This track [live] is great"}]'
+
+    def test_repair_unescaped_quotes_in_string(self):
+        """Should repair unescaped double quotes inside string values."""
+        from backend.llm_client import LLMClient, LLMResponse
+        from backend.models import LLMConfig
+
+        config = LLMConfig(
+            provider="anthropic",
+            api_key="test",
+            model_analysis="test",
+            model_generation="test",
+        )
+
+        with patch("backend.llm_client.anthropic"):
+            client = LLMClient(config)
+
+        # LLM put quotes around song name inside reason field
+        response = LLMResponse(
+            content='[{"artist": "Phoenix", "title": "Fences", "reason": "The song "Fences" is great"}]',
+            input_tokens=100,
+            output_tokens=50,
+            model="test",
+        )
+
+        result = client.parse_json_response(response)
+        assert result[0]["artist"] == "Phoenix"
+        assert result[0]["title"] == "Fences"
+        assert "Fences" in result[0]["reason"]
+
+    def test_repair_multiple_unescaped_quotes(self):
+        """Should repair multiple unescaped quotes in one string."""
+        from backend.llm_client import LLMClient, LLMResponse
+        from backend.models import LLMConfig
+
+        config = LLMConfig(
+            provider="anthropic",
+            api_key="test",
+            model_analysis="test",
+            model_generation="test",
+        )
+
+        with patch("backend.llm_client.anthropic"):
+            client = LLMClient(config)
+
+        response = LLMResponse(
+            content='[{"reason": "Both "Song A" and "Song B" are perfect"}]',
+            input_tokens=100,
+            output_tokens=50,
+            model="test",
+        )
+
+        result = client.parse_json_response(response)
+        assert "Song A" in result[0]["reason"]
+        assert "Song B" in result[0]["reason"]
+
+    def test_repair_json_with_newlines_in_strings(self):
+        """Should handle newlines inside string values."""
+        from backend.llm_client import LLMClient, LLMResponse
+        from backend.models import LLMConfig
+
+        config = LLMConfig(
+            provider="anthropic",
+            api_key="test",
+            model_analysis="test",
+            model_generation="test",
+        )
+
+        with patch("backend.llm_client.anthropic"):
+            client = LLMClient(config)
+
+        # Note: The actual newline character in the string
+        response = LLMResponse(
+            content='[{"reason": "Line one\nLine two"}]',
+            input_tokens=100,
+            output_tokens=50,
+            model="test",
+        )
+
+        result = client.parse_json_response(response)
+        assert "Line one" in result[0]["reason"]
