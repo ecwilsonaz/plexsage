@@ -85,17 +85,38 @@ def load_user_yaml_config() -> dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+class ConfigSaveError(Exception):
+    """Raised when configuration cannot be saved."""
+    pass
+
+
 def save_user_config(updates: dict[str, Any]) -> None:
     """Save user configuration to config.user.yaml.
 
     Only saves non-empty values. Preserves existing user config.
+
+    Raises:
+        ConfigSaveError: If file cannot be written (permissions, disk full, etc.)
     """
     existing = load_user_yaml_config()
     merged = deep_merge(existing, updates)
     cleaned = remove_empty_values(merged)
 
-    with open(USER_CONFIG_PATH, "w") as f:
-        yaml.dump(cleaned, f, default_flow_style=False)
+    try:
+        with open(USER_CONFIG_PATH, "w") as f:
+            yaml.dump(cleaned, f, default_flow_style=False)
+    except PermissionError:
+        raise ConfigSaveError(
+            f"Permission denied writing to {USER_CONFIG_PATH}. "
+            "Check that the data directory is writable. "
+            "For Docker, ensure the volume is mounted with correct permissions "
+            "(e.g., user directive or chown to UID 1000)."
+        )
+    except OSError as e:
+        raise ConfigSaveError(
+            f"Failed to save configuration to {USER_CONFIG_PATH}: {e}. "
+            "Check disk space and directory permissions."
+        )
 
 
 def get_env_or_yaml(

@@ -634,12 +634,15 @@ class PlexClient:
         except Exception:
             return None
 
-    def create_playlist(self, name: str, rating_keys: list[str]) -> dict[str, Any]:
+    def create_playlist(
+        self, name: str, rating_keys: list[str], description: str = ""
+    ) -> dict[str, Any]:
         """Create a playlist in Plex.
 
         Args:
             name: Playlist name
             rating_keys: List of track rating keys
+            description: Playlist description/summary (optional)
 
         Returns:
             Dict with success status and playlist_id or error
@@ -672,6 +675,14 @@ class PlexClient:
 
             # Create playlist
             playlist = self._server.createPlaylist(name, items=items)
+
+            # Set description/summary if provided
+            if description:
+                try:
+                    playlist.edit(summary=description)
+                    logger.info("Set playlist description: %d chars", len(description))
+                except Exception as e:
+                    logger.warning("Failed to set playlist description: %s", e)
 
             # Build the Plex web app URL for the playlist (uses local server URL)
             playlist_url = None

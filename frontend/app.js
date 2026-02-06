@@ -37,6 +37,12 @@ const state = {
     tokenCount: 0,
     estimatedCost: 0,
 
+    // Curator narrative
+    playlistTitle: '',      // Generated title with date
+    narrative: '',          // 2-3 sentence curator note
+    trackReasons: {},       // { rating_key: "reason string" }
+    userRequest: '',        // Original user prompt for display
+
     // Cost tracking (accumulated across analysis + generation)
     sessionTokens: 0,
     sessionCost: 0,
@@ -138,6 +144,10 @@ async function generatePlaylist(request) {
         body: JSON.stringify(request),
     });
 }
+
+// Module-level abort controller for SSE requests
+// Allows aborting previous request when starting a new one
+let currentAbortController = null;
 
 // Progress message queue for smooth display
 const progressQueue = {
@@ -268,6 +278,11 @@ const progressQueue = {
 };
 
 function generatePlaylistStream(request, onProgress, onComplete, onError) {
+    // Abort any previous in-flight request
+    if (currentAbortController) {
+        currentAbortController.abort();
+    }
+
     // Reset and configure progress queue
     progressQueue.reset();
     progressQueue.onDisplay = (message) => {
@@ -279,14 +294,14 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
 
     // Timeout handling - 10 minutes for local providers, 5 minutes for cloud
     let timeoutId = null;
-    let abortController = new AbortController();
+    currentAbortController = new AbortController();
     const isLocalProvider = state.config?.is_local_provider ?? false;
     const TIMEOUT_MS = isLocalProvider ? 600000 : 300000;  // 10 min vs 5 min
 
     function resetTimeout() {
         if (timeoutId) clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
-            abortController.abort();
+            currentAbortController.abort();
             progressQueue.reset();
             onError(new Error('Request timed out. Try selecting some filters to reduce the library size.'));
         }, TIMEOUT_MS);
@@ -306,7 +321,7 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
-        signal: abortController.signal,
+        signal: currentAbortController.signal,
     }).then(response => {
         if (!response.ok) {
             clearTimeoutHandler();
@@ -340,6 +355,13 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
                             const data = JSON.parse(line.slice(6));
                             if (currentEvent === 'progress') {
                                 progressQueue.enqueue(data.step, data.message);
+                            } else if (currentEvent === 'narrative') {
+                                // Store narrative data in state
+                                state.playlistTitle = data.playlist_title || '';
+                                state.narrative = data.narrative || '';
+                                state.trackReasons = data.track_reasons || {};
+                                state.userRequest = data.user_request || '';
+                                console.log('[MediaSage] Narrative received:', state.playlistTitle);
                             } else if (currentEvent === 'complete') {
                                 console.log('[MediaSage] Complete event received:', JSON.stringify(data).substring(0, 200));
                                 clearTimeoutHandler();
@@ -377,10 +399,10 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
     });
 }
 
-async function savePlaylist(name, ratingKeys) {
+async function savePlaylist(name, ratingKeys, description = '') {
     return apiCall('/playlist', {
         method: 'POST',
-        body: JSON.stringify({ name, rating_keys: ratingKeys }),
+        body: JSON.stringify({ name, rating_keys: ratingKeys, description }),
     });
 }
 
@@ -761,7 +783,95 @@ function recalculateCostDisplay() {
     updateFilterPreviewDisplay(matching_tracks, tracks_to_send, estimated_cost);
 }
 
+function renderNarrativeBox() {
+    const container = document.getElementById('narrative-box');
+    if (!container) return;
+
+    if (!state.narrative) {
+        container.classList.add('hidden');
+        return;
+    }
+
+    container.classList.remove('hidden');
+
+    const requestHtml = state.userRequest
+        ? `<p class="narrative-request">↳ "${escapeHtml(state.userRequest)}"</p>`
+        : '';
+
+    container.innerHTML = `
+        <p class="narrative-text">${escapeHtml(state.narrative)}</p>
+        ${requestHtml}
+    `;
+}
+
+function showTrackReason(ratingKey) {
+    const panel = document.getElementById('track-reason-panel');
+    if (!panel) return;
+
+    const placeholder = panel.querySelector('.reason-placeholder');
+    const content = panel.querySelector('.reason-content');
+
+    if (!ratingKey) {
+        // Show placeholder
+        placeholder.classList.remove('hidden');
+        content.classList.add('hidden');
+        return;
+    }
+
+    // Find track in playlist
+    const track = state.playlist.find(t => t.rating_key === ratingKey);
+    if (!track) return;
+
+    // Get reason for this track
+    const reason = state.trackReasons[ratingKey] || 'Selected for this playlist';
+
+    // Update panel content
+    panel.querySelector('.reason-track-title').textContent = track.title;
+    panel.querySelector('.reason-track-artist').textContent = `${track.artist} - ${track.album}`;
+    panel.querySelector('.reason-text').textContent = reason;
+
+    // Show content, hide placeholder
+    placeholder.classList.add('hidden');
+    content.classList.remove('hidden');
+}
+
+function isMobileView() {
+    return window.innerWidth <= 768;
+}
+
+function openBottomSheet(ratingKey) {
+    const sheet = document.getElementById('bottom-sheet');
+    if (!sheet) return;
+
+    // Find track in playlist
+    const track = state.playlist.find(t => t.rating_key === ratingKey);
+    if (!track) return;
+
+    // Get reason for this track
+    const reason = state.trackReasons[ratingKey] || 'Selected for this playlist';
+
+    // Update content
+    sheet.querySelector('.bottom-sheet-track-title').textContent = track.title;
+    sheet.querySelector('.bottom-sheet-track-artist').textContent = `${track.artist} - ${track.album}`;
+    sheet.querySelector('.bottom-sheet-reason').textContent = reason;
+
+    // Show sheet
+    sheet.classList.remove('hidden');
+    document.body.classList.add('no-scroll');
+}
+
+function closeBottomSheet() {
+    const sheet = document.getElementById('bottom-sheet');
+    if (!sheet) return;
+
+    sheet.classList.add('hidden');
+    document.body.classList.remove('no-scroll');
+}
+
 function updatePlaylist() {
+    // Render narrative box above track list
+    renderNarrativeBox();
+
     const container = document.getElementById('playlist-tracks');
     container.innerHTML = state.playlist.map((track, index) => `
         <div class="playlist-track" data-rating-key="${escapeHtml(track.rating_key)}">
@@ -775,6 +885,34 @@ function updatePlaylist() {
             <button class="track-remove" data-rating-key="${escapeHtml(track.rating_key)}">&times;</button>
         </div>
     `).join('');
+
+    // Add hover handlers for desktop side panel and click handlers for mobile bottom sheet
+    container.querySelectorAll('.playlist-track').forEach(trackEl => {
+        // Desktop: hover to show reason in side panel
+        trackEl.addEventListener('mouseenter', () => {
+            if (!isMobileView()) {
+                showTrackReason(trackEl.dataset.ratingKey);
+            }
+        });
+
+        // Desktop: clear panel when mouse leaves
+        trackEl.addEventListener('mouseleave', () => {
+            if (!isMobileView()) {
+                showTrackReason(null);
+            }
+        });
+
+        // Mobile: tap to open bottom sheet (but not on remove button)
+        trackEl.addEventListener('click', (e) => {
+            if (e.target.closest('.track-remove')) return;
+            if (isMobileView()) {
+                openBottomSheet(trackEl.dataset.ratingKey);
+            }
+        });
+    });
+
+    // Reset side panel to placeholder
+    showTrackReason(null);
 
     // Update cost display (actual costs from API responses)
     // For local providers, show tokens only (no dollar cost)
@@ -1130,25 +1268,28 @@ function updateFooter() {
 
     const footerModel = document.getElementById('footer-model');
     if (footerModel && state.config) {
+        let modelText;
         if (state.config.llm_configured) {
             const analysis = state.config.model_analysis;
             const generation = state.config.model_generation;
 
             if (analysis && generation && analysis !== generation) {
                 // Two different models - show both
-                footerModel.textContent = `${analysis} / ${generation}`;
+                modelText = `${analysis} / ${generation}`;
             } else if (generation) {
                 // Same model or only generation set
-                footerModel.textContent = generation;
+                modelText = generation;
             } else if (analysis) {
-                footerModel.textContent = analysis;
+                modelText = analysis;
             } else {
-                footerModel.textContent = state.config.llm_provider;
+                modelText = state.config.llm_provider;
             }
         } else {
             // Not configured - show "not configured" regardless of provider selection
-            footerModel.textContent = 'llm not configured';
+            modelText = 'llm not configured';
         }
+        footerModel.textContent = modelText;
+        footerModel.title = modelText; // Tooltip for truncated names
     }
 }
 
@@ -1235,6 +1376,12 @@ function showSuccessModal(name, trackCount, playlistUrl) {
     document.body.classList.add('no-scroll');
 }
 
+function dismissSuccessModal() {
+    // Just hide the modal, don't reset state - user can continue with playlist
+    document.getElementById('success-modal').classList.add('hidden');
+    document.body.classList.remove('no-scroll');
+}
+
 function hideSuccessModal() {
     document.getElementById('success-modal').classList.add('hidden');
     document.body.classList.remove('no-scroll');
@@ -1254,6 +1401,10 @@ function hideSuccessModal() {
     state.estimatedCost = 0;
     state.sessionTokens = 0;
     state.sessionCost = 0;
+    state.playlistTitle = '';
+    state.narrative = '';
+    state.trackReasons = {};
+    state.userRequest = '';
     document.getElementById('prompt-input').value = '';
     updateStep();
 }
@@ -1633,6 +1784,26 @@ function setupEventListeners() {
     document.getElementById('custom-url').addEventListener('blur', () => {
         validateCustomUrlInline();
     });
+
+    // Bottom sheet close handlers
+    const bottomSheet = document.getElementById('bottom-sheet');
+    if (bottomSheet) {
+        // Close on backdrop tap
+        bottomSheet.querySelector('.bottom-sheet-backdrop').addEventListener('click', closeBottomSheet);
+
+        // Close on swipe down (simple implementation)
+        let touchStartY = 0;
+        const content = bottomSheet.querySelector('.bottom-sheet-content');
+        content.addEventListener('touchstart', (e) => {
+            touchStartY = e.touches[0].clientY;
+        });
+        content.addEventListener('touchend', (e) => {
+            const touchEndY = e.changedTouches[0].clientY;
+            if (touchEndY - touchStartY > 50) {
+                closeBottomSheet();
+            }
+        });
+    }
 }
 
 async function handleAnalyzePrompt() {
@@ -1877,7 +2048,20 @@ async function handleGenerate() {
             state.playlist = response.tracks;
             state.tokenCount = state.sessionTokens;
             state.estimatedCost = state.sessionCost;
-            state.playlistName = generatePlaylistName();
+
+            // Use generated title from response, or from state if already set via SSE
+            if (response.playlist_title) {
+                state.playlistTitle = response.playlist_title;
+            }
+            if (response.narrative) {
+                state.narrative = response.narrative;
+            }
+            if (response.track_reasons) {
+                state.trackReasons = response.track_reasons;
+            }
+
+            // Use generated title for playlist name, fallback to old method
+            state.playlistName = state.playlistTitle || generatePlaylistName();
 
             state.step = 'results';
             updateStep();
@@ -1925,7 +2109,7 @@ async function handleSavePlaylist() {
 
     try {
         const ratingKeys = state.playlist.map(t => t.rating_key);
-        const response = await savePlaylist(name, ratingKeys);
+        const response = await savePlaylist(name, ratingKeys, state.narrative);
 
         if (response.success) {
             const trackCount = response.tracks_added || state.playlist.length;

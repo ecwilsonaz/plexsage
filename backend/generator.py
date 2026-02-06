@@ -3,6 +3,7 @@
 import json
 import logging
 from collections.abc import Generator
+from datetime import datetime
 
 from backend.llm_client import get_llm_client
 from backend.models import GenerateResponse, Track
@@ -10,6 +11,63 @@ from backend.plex_client import PlexQueryError, get_plex_client
 from backend import library_cache
 
 logger = logging.getLogger(__name__)
+
+
+def generate_narrative(
+    track_selections: list[dict],
+    llm_client,
+    user_request: str = "",
+) -> tuple[str, str]:
+    """Generate a creative title and narrative for the playlist.
+
+    Args:
+        track_selections: List of track dicts with artist, title, album, reason
+        llm_client: LLM client instance
+        user_request: Original user prompt/request for context
+
+    Returns:
+        Tuple of (playlist_title with date, narrative)
+        On failure, returns ("{Mon YYYY} Playlist", "")
+    """
+    # Build input for Query 2: track list with reasons
+    tracks_with_reasons = "\n".join(
+        f"- {sel.get('artist', 'Unknown')} - \"{sel.get('title', 'Unknown')}\": {sel.get('reason', 'Selected for this playlist')}"
+        for sel in track_selections[:15]  # Limit to first 15 for context efficiency
+    )
+
+    # Include user request for context
+    if user_request:
+        narrative_prompt = f"User's request: {user_request}\n\nSelected tracks:\n{tracks_with_reasons}"
+    else:
+        narrative_prompt = f"Selected tracks:\n{tracks_with_reasons}"
+
+    # Get current month/year for title suffix
+    date_suffix = datetime.now().strftime("%b %Y")
+    fallback_title = f"{date_suffix} Playlist"
+
+    try:
+        # Use analysis model for better creative writing quality
+        response = llm_client.analyze(narrative_prompt, NARRATIVE_SYSTEM)
+        result = llm_client.parse_json_response(response)
+
+        if not isinstance(result, dict):
+            logger.warning("Narrative response not a dict, using fallback")
+            return fallback_title, ""
+
+        raw_title = result.get("title", "").strip()
+        narrative = result.get("narrative", "").strip()
+
+        # Append date to title
+        if raw_title:
+            playlist_title = f"{raw_title} - {date_suffix}"
+        else:
+            playlist_title = fallback_title
+
+        return playlist_title, narrative
+
+    except Exception as e:
+        logger.warning("Narrative generation failed: %s", e)
+        return fallback_title, ""
 
 
 def _cached_track_to_model(cached: dict) -> Track:
@@ -190,6 +248,7 @@ def generate_playlist_stream(
 
         matched_tracks: list[Track] = []
         used_keys: set[str] = set()
+        track_reasons: dict[str, str] = {}
 
         if seed_track:
             used_keys.add(seed_track.rating_key)
@@ -200,6 +259,7 @@ def generate_playlist_stream(
 
             artist = selection.get("artist", "")
             title = selection.get("title", "")
+            reason = selection.get("reason", "")
 
             for track in filtered_tracks:
                 if track.rating_key in used_keys:
@@ -208,9 +268,25 @@ def generate_playlist_stream(
                 if _tracks_match(artist, title, track):
                     matched_tracks.append(track)
                     used_keys.add(track.rating_key)
+                    if reason:
+                        track_reasons[track.rating_key] = reason
                     break
 
-        # Step 7: Complete
+        # Step 7: Generate narrative
+        yield emit("progress", {"step": "narrative", "message": "Writing playlist narrative..."})
+
+        playlist_title, narrative = generate_narrative(track_selections, llm_client, prompt or "")
+        logger.info("Generated narrative: title='%s', narrative_len=%d", playlist_title, len(narrative))
+
+        # Emit narrative event for frontend
+        yield emit("narrative", {
+            "playlist_title": playlist_title,
+            "narrative": narrative,
+            "track_reasons": track_reasons,
+            "user_request": prompt or "",
+        })
+
+        # Step 8: Complete
         logger.info("Track matching complete. Matched %d tracks", len(matched_tracks))
         logger.info("Emitting 'Playlist ready!' progress event")
         yield emit("progress", {"step": "complete", "message": "Playlist ready!"})
@@ -224,6 +300,9 @@ def generate_playlist_stream(
                 tracks=matched_tracks,
                 token_count=response.total_tokens,
                 estimated_cost=response.estimated_cost(),
+                playlist_title=playlist_title,
+                narrative=narrative,
+                track_reasons=track_reasons,
             )
             logger.info("GenerateResponse built successfully with %d tracks", len(result.tracks))
         except Exception as e:
@@ -246,7 +325,7 @@ You will be given:
 1. A description of what the user wants (prompt, seed track dimensions, or both)
 2. A numbered list of tracks that are available in their library
 
-Your task is to select tracks that best match the user's request. Return your selections as a JSON array of objects with artist, album, and title.
+Your task is to select tracks that best match the user's request. For each track, include a brief reason (1 sentence) explaining why it fits.
 
 Guidelines:
 - Select tracks that fit the mood, era, style, and other aspects of the request
@@ -256,11 +335,27 @@ Guidelines:
 
 Return ONLY a JSON array like:
 [
-  {"artist": "Artist Name", "album": "Album Name", "title": "Track Title"},
+  {"artist": "Artist Name", "album": "Album Name", "title": "Track Title", "reason": "Brief explanation of why this track fits."},
   ...
 ]
 
 No markdown formatting, no explanations - just the JSON array."""
+
+
+NARRATIVE_SYSTEM = """You are a music connoisseur writing a brief liner note for a playlist.
+
+Given the user's original request and the track selections (with reasons), create:
+1. A creative playlist title (2-5 words, evocative, do NOT include any date)
+2. A brief narrative (3 sentences, under 400 characters) that:
+   - Reflects the mood or theme the user asked for
+   - Mentions 3-4 specific songs by name (use single quotes around song names, e.g. 'Skinny Love')
+
+Sound like a passionate music lover. Be concise.
+
+Return ONLY valid JSON:
+{"title": "Creative Title Here", "narrative": "Your brief narrative with 'song names' in single quotes..."}
+
+No markdown formatting, no explanations - just the JSON object."""
 
 
 def generate_playlist(
@@ -370,6 +465,7 @@ def generate_playlist(
     # Match LLM selections to library tracks
     matched_tracks: list[Track] = []
     used_keys: set[str] = set()
+    track_reasons: dict[str, str] = {}
 
     # Exclude seed track if present
     if seed_track:
@@ -383,6 +479,7 @@ def generate_playlist(
 
         artist = selection.get("artist", "")
         title = selection.get("title", "")
+        reason = selection.get("reason", "")
 
         # Find matching track in filtered list
         for track in filtered_tracks:
@@ -393,12 +490,21 @@ def generate_playlist(
             if _tracks_match(artist, title, track):
                 matched_tracks.append(track)
                 used_keys.add(track.rating_key)
+                if reason:
+                    track_reasons[track.rating_key] = reason
                 break
+
+    # Generate narrative
+    playlist_title, narrative = generate_narrative(track_selections, llm_client, prompt or "")
+    logger.info("Generated narrative: title='%s', narrative_len=%d", playlist_title, len(narrative))
 
     return GenerateResponse(
         tracks=matched_tracks,
         token_count=response.total_tokens,
         estimated_cost=response.estimated_cost(),
+        playlist_title=playlist_title,
+        narrative=narrative,
+        track_reasons=track_reasons,
     )
 
 

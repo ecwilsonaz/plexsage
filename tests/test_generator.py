@@ -145,6 +145,83 @@ class TestTrackMatching:
         assert "Tom and Jerry" in variations
         assert "Tom & Jerry" in variations
 
+class TestNarrativeGeneration:
+    """Tests for curator narrative generation."""
+
+    def test_generate_narrative_returns_title_and_narrative(self, mocker):
+        """Should generate creative title and narrative from track selections."""
+        from backend.generator import generate_narrative
+        from backend.llm_client import LLMResponse
+
+        track_selections = [
+            {"artist": "Radiohead", "title": "Fake Plastic Trees", "reason": "Melancholic atmosphere"},
+            {"artist": "Pearl Jam", "title": "Black", "reason": "Emotional depth"},
+        ]
+
+        mock_response = LLMResponse(
+            content='{"title": "Rainstorm Reverie", "narrative": "This playlist weaves through Radiohead\'s Fake Plastic Trees and Pearl Jam\'s Black for a moody journey."}',
+            input_tokens=500,
+            output_tokens=50,
+            model="test-model"
+        )
+
+        mock_client = MagicMock()
+        mock_client.generate.return_value = mock_response
+        mock_client.parse_json_response.return_value = {
+            "title": "Rainstorm Reverie",
+            "narrative": "This playlist weaves through Radiohead's Fake Plastic Trees and Pearl Jam's Black for a moody journey."
+        }
+
+        title, narrative = generate_narrative(track_selections, mock_client)
+
+        assert "Rainstorm Reverie" in title
+        # Title should include date suffix
+        assert " - " in title
+        assert "Fake Plastic Trees" in narrative or len(narrative) > 0
+
+    def test_generate_narrative_fallback_on_failure(self, mocker):
+        """Should return fallback title on LLM failure."""
+        from backend.generator import generate_narrative
+
+        track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
+
+        mock_client = MagicMock()
+        mock_client.generate.side_effect = Exception("LLM error")
+
+        title, narrative = generate_narrative(track_selections, mock_client)
+
+        # Should return fallback title with date
+        assert "Playlist" in title
+        assert narrative == ""
+
+    def test_generate_narrative_passes_through_long_narrative(self, mocker):
+        """Should pass through narrative without truncation (LLM prompt guides length)."""
+        from backend.generator import generate_narrative
+        from backend.llm_client import LLMResponse
+
+        track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
+
+        long_narrative = "A" * 600
+        mock_response = LLMResponse(
+            content=json.dumps({"title": "Test", "narrative": long_narrative}),
+            input_tokens=500,
+            output_tokens=50,
+            model="test-model"
+        )
+
+        mock_client = MagicMock()
+        mock_client.generate.return_value = mock_response
+        mock_client.parse_json_response.return_value = {
+            "title": "Test",
+            "narrative": long_narrative
+        }
+
+        title, narrative = generate_narrative(track_selections, mock_client)
+
+        # No truncation - LLM prompt guides length instead
+        assert narrative == long_narrative
+
+
 class TestLiveVersionFiltering:
     """Tests for live version detection."""
 

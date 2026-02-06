@@ -203,7 +203,19 @@
                                 aria-label="Playlist name"
                             >
                         </div>
-                        <div id="playlist-tracks" class="playlist-tracks" role="list" aria-label="Generated playlist"></div>
+                        <!-- Narrative Box -->
+                        <div id="narrative-box" class="narrative-box hidden"></div>
+                        <div class="results-layout">
+                            <div id="playlist-tracks" class="playlist-tracks" role="list" aria-label="Generated playlist"></div>
+                            <aside id="track-reason-panel" class="track-reason-panel">
+                                <div class="reason-placeholder">Hover over a track to see why it was chosen</div>
+                                <div class="reason-content hidden">
+                                    <div class="reason-track-title"></div>
+                                    <div class="reason-track-artist"></div>
+                                    <p class="reason-text"></p>
+                                </div>
+                            </aside>
+                        </div>
                         <div class="results-actions">
                             <button id="regenerate-btn" class="btn btn-secondary">
                                 Regenerate
@@ -239,12 +251,14 @@
                 <!-- Success Modal -->
                 <div id="success-modal" class="success-modal hidden" role="dialog" aria-modal="true" aria-labelledby="success-modal-title">
                     <div class="success-modal-content">
+                        <button class="modal-close" onclick="dismissSuccessModal()" aria-label="Close">&times;</button>
                         <div class="success-icon" aria-hidden="true"></div>
                         <h2 id="success-modal-title">Playlist Saved!</h2>
                         <p id="success-modal-summary"></p>
                         <div class="success-modal-actions">
                             <a id="open-in-plex-btn" class="btn btn-plex" href="#" target="_blank" rel="noopener">Open in Plex <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg></a>
                             <button id="new-playlist-btn" class="btn btn-primary">Start New Playlist</button>
+                            <button class="btn btn-secondary" onclick="dismissSuccessModal()">Back to Playlist</button>
                         </div>
                     </div>
                 </div>
@@ -375,6 +389,17 @@
                 </section>
             </div>
         </main>
+
+        <!-- Track Reason Bottom Sheet (Mobile) -->
+        <div id="bottom-sheet" class="bottom-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="bottom-sheet-title">
+            <div class="bottom-sheet-backdrop"></div>
+            <div class="bottom-sheet-content">
+                <div class="bottom-sheet-handle"></div>
+                <h3 id="bottom-sheet-title" class="bottom-sheet-track-title"></h3>
+                <p class="bottom-sheet-track-artist"></p>
+                <p class="bottom-sheet-reason"></p>
+            </div>
+        </div>
 
         <!-- Error Toast -->
         <div id="error-toast" class="toast error hidden" role="alert" aria-live="assertive">

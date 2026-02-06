@@ -354,6 +354,70 @@ class LLMClient:
             model = self.config.model_generation
         return self._complete(prompt, system, model)
 
+    def _extract_json_bounds(self, content: str) -> str | None:
+        """Extract JSON array or object from content with extra text.
+
+        Finds the first [ or { and its matching closing bracket,
+        properly handling nested structures and strings.
+
+        Args:
+            content: Raw content that may contain JSON with extra text
+
+        Returns:
+            Extracted JSON string, or None if no valid JSON found
+        """
+        # Find start of JSON
+        start_idx = -1
+        open_char = None
+        close_char = None
+
+        for i, c in enumerate(content):
+            if c == '[':
+                start_idx = i
+                open_char = '['
+                close_char = ']'
+                break
+            elif c == '{':
+                start_idx = i
+                open_char = '{'
+                close_char = '}'
+                break
+
+        if start_idx == -1:
+            return None
+
+        # Track bracket depth, handling strings
+        depth = 0
+        in_string = False
+        escape_next = False
+
+        for i in range(start_idx, len(content)):
+            c = content[i]
+
+            if escape_next:
+                escape_next = False
+                continue
+
+            if c == '\\' and in_string:
+                escape_next = True
+                continue
+
+            if c == '"' and not escape_next:
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if c == open_char:
+                depth += 1
+            elif c == close_char:
+                depth -= 1
+                if depth == 0:
+                    return content[start_idx:i + 1]
+
+        return None
+
     def parse_json_response(self, response: LLMResponse) -> Any:
         """Parse JSON from LLM response, handling common issues.
 
@@ -386,9 +450,22 @@ class LLMClient:
             if match:
                 content = match.group(1).strip()
 
+        # Replace curly/smart quotes with straight quotes (common LLM issue)
+        content = content.replace('"', '"').replace('"', '"')
+        content = content.replace(''', "'").replace(''', "'")
+
         try:
             return json.loads(content)
         except json.JSONDecodeError as e:
+            # If "Extra data" error, try to extract just the JSON portion
+            if "Extra data" in str(e):
+                extracted = self._extract_json_bounds(content)
+                if extracted:
+                    try:
+                        return json.loads(extracted)
+                    except json.JSONDecodeError:
+                        pass  # Fall through to error
+
             # Include first 200 chars of content for debugging
             preview = content[:200] + "..." if len(content) > 200 else content
             raise ValueError(

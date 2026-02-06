@@ -597,3 +597,77 @@ class TestOllamaModelInfoParsing:
 
         assert result is not None
         assert result.context_window == 32768
+
+
+class TestJsonParsing:
+    """Tests for JSON parsing from LLM responses."""
+
+    def test_parse_json_with_extra_text(self):
+        """Should handle LLM responses with extra text after JSON array."""
+        from backend.llm_client import LLMClient, LLMResponse
+        from backend.models import LLMConfig
+
+        config = LLMConfig(
+            provider="anthropic",
+            api_key="test",
+            model_analysis="test",
+            model_generation="test",
+        )
+
+        with patch("backend.llm_client.anthropic"):
+            client = LLMClient(config)
+
+        # Simulate LLM adding explanation after JSON
+        response = LLMResponse(
+            content='[{"artist": "Test", "title": "Song"}]\n\nThis is a great selection because...',
+            input_tokens=100,
+            output_tokens=50,
+            model="test",
+        )
+
+        result = client.parse_json_response(response)
+        assert result == [{"artist": "Test", "title": "Song"}]
+
+    def test_parse_json_with_nested_objects(self):
+        """Should handle nested JSON objects with extra text."""
+        from backend.llm_client import LLMClient, LLMResponse
+        from backend.models import LLMConfig
+
+        config = LLMConfig(
+            provider="anthropic",
+            api_key="test",
+            model_analysis="test",
+            model_generation="test",
+        )
+
+        with patch("backend.llm_client.anthropic"):
+            client = LLMClient(config)
+
+        response = LLMResponse(
+            content='{"title": "Test", "tracks": [{"name": "Song"}]} Extra text here',
+            input_tokens=100,
+            output_tokens=50,
+            model="test",
+        )
+
+        result = client.parse_json_response(response)
+        assert result == {"title": "Test", "tracks": [{"name": "Song"}]}
+
+    def test_extract_json_bounds_with_strings_containing_brackets(self):
+        """Should handle JSON with brackets inside strings."""
+        from backend.llm_client import LLMClient
+        from backend.models import LLMConfig
+
+        config = LLMConfig(
+            provider="anthropic",
+            api_key="test",
+            model_analysis="test",
+            model_generation="test",
+        )
+
+        with patch("backend.llm_client.anthropic"):
+            client = LLMClient(config)
+
+        content = '[{"reason": "This track [live] is great"}] Some explanation'
+        result = client._extract_json_bounds(content)
+        assert result == '[{"reason": "This track [live] is great"}]'

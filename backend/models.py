@@ -238,6 +238,10 @@ class GenerateResponse(BaseModel):
     tracks: list[Track]
     token_count: int
     estimated_cost: float
+    # Curator narrative fields
+    playlist_title: str = ""
+    narrative: str = ""
+    track_reasons: dict[str, str] = {}
 
 
 class SavePlaylistRequest(BaseModel):
@@ -245,6 +249,7 @@ class SavePlaylistRequest(BaseModel):
 
     name: str
     rating_keys: list[str]
+    description: str = ""  # Playlist description (narrative) saved to Plex
 
     @field_validator("name")
     @classmethod

@@ -9,6 +9,8 @@ MediaSage is a self-hosted web application that generates Plex music playlists u
 ## Active Technologies
 - Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-plexapi, sqlite3 (stdlib), Pydantic (003-local-library-cache)
 - SQLite file at `data/library_cache.db` (003-local-library-cache)
+- Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-plexapi, google-genai, anthropic, openai, pydantic, rapidfuzz (004-curator-narrative)
+- SQLite (library cache at `data/library_cache.db`) - no schema changes needed (004-curator-narrative)
 
 - **Backend**: Python 3.11+, FastAPI, python-plexapi, anthropic SDK, openai SDK, pydantic, uvicorn, rapidfuzz, unidecode
 - **Frontend**: Vanilla HTML/CSS/JS (no build step)
@@ -123,4 +125,5 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 <!-- MANUAL ADDITIONS END -->
 
 ## Recent Changes
+- 004-curator-narrative: Added Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-plexapi, google-genai, anthropic, openai, pydantic, rapidfuzz
 - 003-local-library-cache: Added Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-plexapi, sqlite3 (stdlib), Pydantic

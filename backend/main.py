@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from starlette.responses import StreamingResponse
 import httpx
 
-from backend.config import get_config, update_config_values
+from backend.config import get_config, update_config_values, ConfigSaveError
 from backend.version import get_version
 from backend.models import (
     AnalyzePromptRequest,
@@ -37,7 +37,6 @@ from backend.models import (
 )
 from backend.plex_client import get_plex_client, init_plex_client
 from backend import library_cache
-from backend.version import get_version
 from backend.llm_client import (
     get_llm_client,
     init_llm_client,
@@ -179,7 +178,10 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
         raise HTTPException(status_code=400, detail="No configuration values provided")
 
     # Update config
-    config = update_config_values(updates)
+    try:
+        config = update_config_values(updates)
+    except ConfigSaveError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
     # Reinitialize clients if relevant config changed
     if any(k in updates for k in ["plex_url", "plex_token", "music_library"]):
@@ -567,6 +569,7 @@ async def generate_playlist_sse(request: GenerateRequest) -> StreamingResponse:
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable buffering for nginx/reverse proxies
         },
     )
 
@@ -584,7 +587,10 @@ async def save_playlist(request: SavePlaylistRequest) -> SavePlaylistResponse:
         raise HTTPException(status_code=503, detail="Plex not connected")
 
     result = await asyncio.to_thread(
-        plex_client.create_playlist, request.name, request.rating_keys
+        plex_client.create_playlist,
+        request.name,
+        request.rating_keys,
+        request.description,
     )
     return SavePlaylistResponse(**result)
 
