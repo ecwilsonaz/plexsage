@@ -334,15 +334,13 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
 
         function processStream() {
             reader.read().then(({ done, value }) => {
-                if (done) {
-                    clearTimeoutHandler();
-                    return;
+                // Reset timeout on each chunk received
+                if (!done) {
+                    resetTimeout();
                 }
 
-                // Reset timeout on each chunk received
-                resetTimeout();
-
-                buffer += decoder.decode(value, { stream: true });
+                // Decode and add to buffer (even if done, to flush any remaining)
+                buffer += decoder.decode(value, { stream: !done });
                 const lines = buffer.split('\n');
                 buffer = lines.pop(); // Keep incomplete line in buffer
 
@@ -377,6 +375,12 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
                         }
                         currentEvent = null;
                     }
+                }
+
+                if (done) {
+                    clearTimeoutHandler();
+                    console.log('[MediaSage] Stream done, buffer remaining:', buffer.length, 'chars');
+                    return;
                 }
 
                 processStream();
