@@ -458,18 +458,32 @@ async def preview_filters(request: FilterPreviewRequest) -> FilterPreviewRespons
     else:
         tracks_to_send = min(matching_tracks, request.max_tracks_to_ai)
 
-    # Estimate tokens for the generation request
-    # Rough estimates: ~50 tokens per track in context, ~30 tokens per track in output
-    estimated_input_tokens = 500 + (tracks_to_send * 50)  # Base prompt + track list
-    estimated_output_tokens = request.track_count * 30  # ~30 tokens per track suggestion
+    # Estimate tokens for all 3 API calls based on real-world testing (Feb 2026):
+    # - Analysis call (model_analysis): ~700 input, ~100 output
+    # - Generation call (model_generation): ~(tracks * 40) input, ~(track_count * 60) output
+    # - Narrative call (model_analysis): ~400 input, ~200 output
+    analysis_input = 1100  # analysis (700) + narrative (400)
+    analysis_output = 300  # analysis (100) + narrative (200)
+    generation_input = tracks_to_send * 40
+    generation_output = request.track_count * 60  # ~60 tokens per track in response
 
-    # Calculate cost using the actual configured generation model
-    estimated_cost = estimate_cost_for_model(
-        config.llm.model_generation,
-        estimated_input_tokens,
-        estimated_output_tokens,
+    estimated_input_tokens = analysis_input + generation_input
+    estimated_output_tokens = analysis_output + generation_output
+
+    # Calculate cost separately for each model since they may have different pricing
+    analysis_cost = estimate_cost_for_model(
+        config.llm.model_analysis,
+        analysis_input,
+        analysis_output,
         config=config.llm,
     )
+    generation_cost = estimate_cost_for_model(
+        config.llm.model_generation,
+        generation_input,
+        generation_output,
+        config=config.llm,
+    )
+    estimated_cost = analysis_cost + generation_cost
 
     return FilterPreviewResponse(
         matching_tracks=matching_tracks,

@@ -18,17 +18,17 @@ from backend.models import LLMConfig, OllamaModel, OllamaModelInfo, OllamaModels
 logger = logging.getLogger(__name__)
 
 
-# Cost per million tokens (approximate, updated periodically)
+# Cost per million tokens (updated Feb 2026)
 MODEL_COSTS = {
     # Anthropic models (input/output per million tokens)
     "claude-sonnet-4-5": {"input": 3.00, "output": 15.00},
-    "claude-haiku-4-5": {"input": 0.25, "output": 1.25},
+    "claude-haiku-4-5": {"input": 1.00, "output": 5.00},
     # OpenAI models
     "gpt-4.1": {"input": 2.00, "output": 8.00},
     "gpt-4.1-mini": {"input": 0.40, "output": 1.60},
     # Google Gemini models
     "gemini-2.5-pro": {"input": 1.25, "output": 5.00},
-    "gemini-2.5-flash": {"input": 0.075, "output": 0.30},
+    "gemini-2.5-flash": {"input": 0.30, "output": 2.50},
 }
 
 # Context limits per model (in tokens) - used to calculate max tracks
@@ -44,8 +44,8 @@ MODEL_CONTEXT_LIMITS = {
     "gemini-2.5-flash": 1_000_000,
 }
 
-# Tokens per track (approximate)
-TOKENS_PER_TRACK = 50
+# Tokens per track (based on real-world testing, Feb 2026)
+TOKENS_PER_TRACK = 40
 
 
 @dataclass
@@ -121,7 +121,7 @@ class LLMClient:
         logger.info("Calling Anthropic API with %d char prompt", len(prompt))
         response = self._client.messages.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=8192,
             system=system,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -142,7 +142,7 @@ class LLMClient:
         logger.info("Calling OpenAI API with %d char prompt", len(prompt))
         response = self._client.chat.completions.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=8192,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
@@ -289,7 +289,7 @@ class LLMClient:
         logger.info("Calling custom API with %d char prompt", len(prompt))
         response = self._client.chat.completions.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=8192,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},

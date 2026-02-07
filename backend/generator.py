@@ -50,12 +50,28 @@ def generate_narrative(
         response = llm_client.analyze(narrative_prompt, NARRATIVE_SYSTEM)
         result = llm_client.parse_json_response(response)
 
+        # Handle array-wrapped responses (some LLMs wrap in [])
+        if isinstance(result, list) and len(result) > 0:
+            result = result[0]
+
         if not isinstance(result, dict):
-            logger.warning("Narrative response not a dict, using fallback")
+            logger.warning("Narrative response not a dict: %s", type(result).__name__)
             return fallback_title, ""
 
         raw_title = result.get("title", "").strip()
-        narrative = result.get("narrative", "").strip()
+
+        # Try common alternate keys for narrative
+        narrative = (
+            result.get("narrative")
+            or result.get("description")
+            or result.get("text")
+            or result.get("content")
+            or ""
+        ).strip()
+
+        # Log if we got title but no narrative (helps debug)
+        if raw_title and not narrative:
+            logger.warning("Narrative missing from response. Keys: %s", list(result.keys()))
 
         # Append date to title
         if raw_title:

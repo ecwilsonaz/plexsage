@@ -106,33 +106,21 @@ MediaSage syncs your Plex library to a local SQLite database. After a one-time s
 - **Auto-refresh** keeps cache current (syncs if >24h stale)
 - **Manual refresh** available anytime
 
-### Cost Control
-
-Choose how many tracks to send to the AI:
-
-| Track Count | Use Case | Typical Cost |
-|-------------|----------|--------------|
-| 100–500 | Focused playlists, quick generation | Pennies |
-| 1,000–5,000 | Broad requests, more variety | Cents |
-| Up to 18,000 | Full library exploration (Gemini only) | Under $0.50 |
-
-Estimated cost displays before you generate. No surprises.
-
 ### Multi-Provider Support
 
 Bring your own API key—or run locally:
 
-| Provider | Max Tracks | Best For |
-|----------|------------|----------|
-| **Google Gemini** | ~18,000 | Large libraries, lowest cost |
-| **Anthropic Claude** | ~3,500 | Nuanced recommendations |
-| **OpenAI GPT** | ~2,300 | Solid all-around |
-| **Ollama** ⚗️ | Varies by model | Privacy, no API costs |
-| **Custom** ⚗️ | Configurable | Self-hosted, OpenAI-compatible APIs |
+| Provider | Max Tracks | Typical Cost | Best For |
+|----------|------------|--------------|----------|
+| **Google Gemini** | ~18,000 | $0.03 – $0.25 | Large libraries, lowest cost |
+| **Anthropic Claude** | ~3,500 | $0.15 – $0.25 | Nuanced recommendations |
+| **OpenAI GPT** | ~2,300 | $0.05 – $0.10 | Solid all-around |
+| **Ollama** ⚗️ | Varies | Free | Privacy, local inference |
+| **Custom** ⚗️ | Configurable | Free | Self-hosted, OpenAI-compatible APIs |
 
 ⚗️ *Local LLM support is experimental. [Report issues](https://github.com/ecwilsonaz/mediasage/issues).*
 
-MediaSage auto-detects your provider based on which key you configure.
+Estimated cost displays before you generate. MediaSage auto-detects your provider based on which key you configure.
 
 ### Review and Save
 

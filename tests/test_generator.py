@@ -221,6 +221,122 @@ class TestNarrativeGeneration:
         # No truncation - LLM prompt guides length instead
         assert narrative == long_narrative
 
+    def test_generate_narrative_handles_array_wrapped_response(self, mocker):
+        """Should handle array-wrapped JSON responses from some LLMs."""
+        from backend.generator import generate_narrative
+
+        track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
+
+        mock_client = MagicMock()
+        # Some LLMs wrap their response in an array like [{...}]
+        mock_client.parse_json_response.return_value = [
+            {"title": "Wrapped Title", "narrative": "This is wrapped in an array."}
+        ]
+
+        title, narrative = generate_narrative(track_selections, mock_client)
+
+        assert "Wrapped Title" in title
+        assert narrative == "This is wrapped in an array."
+
+    def test_generate_narrative_handles_alternate_key_names(self, mocker):
+        """Should try alternate keys like description, text, content."""
+        from backend.generator import generate_narrative
+
+        track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
+
+        mock_client = MagicMock()
+        # LLM uses "description" instead of "narrative"
+        mock_client.parse_json_response.return_value = {
+            "title": "Alt Key Test",
+            "description": "Using description key instead of narrative."
+        }
+
+        title, narrative = generate_narrative(track_selections, mock_client)
+
+        assert "Alt Key Test" in title
+        assert narrative == "Using description key instead of narrative."
+
+    def test_generate_narrative_handles_text_key(self, mocker):
+        """Should fall back to 'text' key for narrative."""
+        from backend.generator import generate_narrative
+
+        track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
+
+        mock_client = MagicMock()
+        mock_client.parse_json_response.return_value = {
+            "title": "Text Key Test",
+            "text": "Using text key."
+        }
+
+        title, narrative = generate_narrative(track_selections, mock_client)
+
+        assert narrative == "Using text key."
+
+    def test_generate_narrative_handles_content_key(self, mocker):
+        """Should fall back to 'content' key for narrative."""
+        from backend.generator import generate_narrative
+
+        track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
+
+        mock_client = MagicMock()
+        mock_client.parse_json_response.return_value = {
+            "title": "Content Key Test",
+            "content": "Using content key."
+        }
+
+        title, narrative = generate_narrative(track_selections, mock_client)
+
+        assert narrative == "Using content key."
+
+    def test_generate_narrative_empty_array_returns_fallback(self, mocker):
+        """Should handle empty array response gracefully."""
+        from backend.generator import generate_narrative
+
+        track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
+
+        mock_client = MagicMock()
+        mock_client.parse_json_response.return_value = []
+
+        title, narrative = generate_narrative(track_selections, mock_client)
+
+        # Should return fallback
+        assert "Playlist" in title
+        assert narrative == ""
+
+    def test_generate_narrative_prefers_narrative_key_over_alternatives(self, mocker):
+        """Should prefer 'narrative' key when multiple keys present."""
+        from backend.generator import generate_narrative
+
+        track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
+
+        mock_client = MagicMock()
+        mock_client.parse_json_response.return_value = {
+            "title": "Priority Test",
+            "narrative": "Primary value",
+            "description": "Should not use this"
+        }
+
+        title, narrative = generate_narrative(track_selections, mock_client)
+
+        assert narrative == "Primary value"
+
+    def test_generate_narrative_empty_string_uses_fallback_key(self, mocker):
+        """Should try alternate keys when narrative key is empty string."""
+        from backend.generator import generate_narrative
+
+        track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
+
+        mock_client = MagicMock()
+        mock_client.parse_json_response.return_value = {
+            "title": "Empty Primary Test",
+            "narrative": "",
+            "description": "Fallback description used"
+        }
+
+        title, narrative = generate_narrative(track_selections, mock_client)
+
+        assert narrative == "Fallback description used"
+
 
 class TestLiveVersionFiltering:
     """Tests for live version detection."""
