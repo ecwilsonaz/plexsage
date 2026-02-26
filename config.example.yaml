@@ -2,6 +2,11 @@
 # Copy this file to config.yaml and update with your settings
 # Environment variables take priority over values in this file
 
+# Media server selection: "plex" or "jellyfin"
+# Override with MEDIA_SERVER env var
+# Auto-detected: if JELLYFIN_URL is set and PLEX_URL is not, defaults to "jellyfin"
+media_server: "plex"
+
 plex:
   # Plex server URL (override with PLEX_URL env var)
   url: "http://your-plex-server:32400"
@@ -9,6 +14,15 @@ plex:
   # See: https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/
   token: ""
   # Name of your music library section in Plex
+  music_library: "Music"
+
+jellyfin:
+  # Jellyfin server URL (override with JELLYFIN_URL env var)
+  url: ""
+  # Jellyfin API key — create one in Jellyfin: Dashboard > API Keys
+  # Override with JELLYFIN_TOKEN env var
+  token: ""
+  # Name of your music library in Jellyfin
   music_library: "Music"
 
 llm:
