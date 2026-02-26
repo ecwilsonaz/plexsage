@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse
 from starlette.responses import StreamingResponse
 import httpx
 
-from backend.config import get_config, update_config_values, load_user_yaml_config, save_user_config, ConfigSaveError
+from backend.config import get_config, get_current_media_client, update_config_values, load_user_yaml_config, save_user_config, ConfigSaveError
 from backend.version import get_version
 from backend.models import (
     AlbumCandidate,
@@ -66,11 +66,14 @@ from backend.models import (
     UpdatePlaylistResponse,
     ValidateAIRequest,
     ValidateAIResponse,
+    ValidateJellyfinRequest,
+    ValidateJellyfinResponse,
     ValidatePlexRequest,
     ValidatePlexResponse,
     album_key,
 )
 from backend.plex_client import PlexClient as PlexClientInstance, get_plex_client, init_plex_client
+from backend.jellyfin_client import JellyfinClient, get_jellyfin_client, init_jellyfin_client
 from backend import library_cache
 from backend.llm_client import (
     TOKENS_PER_ALBUM,
@@ -104,6 +107,14 @@ async def lifespan(app: FastAPI):
             config.plex.music_library,
         )
 
+    # Initialize Jellyfin client if configured
+    if config.jellyfin.url and config.jellyfin.token:
+        init_jellyfin_client(
+            config.jellyfin.url,
+            config.jellyfin.token,
+            config.jellyfin.music_library,
+        )
+
     # Initialize LLM client if configured
     # Local providers (ollama, custom) don't need an API key
     if config.llm.api_key or config.llm.provider in ("ollama", "custom"):
@@ -113,13 +124,13 @@ async def lifespan(app: FastAPI):
     library_cache.ensure_db_initialized().close()
 
     # Auto-sync if a migration was applied and existing tracks need re-sync
-    plex_client = get_plex_client()
-    if library_cache.needs_resync() and plex_client and plex_client.is_connected():
+    _media_client = get_current_media_client()
+    if library_cache.needs_resync() and _media_client and _media_client.is_connected():
         logger.info("Schema migration detected — starting automatic library re-sync")
 
         async def _run_resync():
             try:
-                await asyncio.to_thread(library_cache.sync_library, plex_client)
+                await asyncio.to_thread(library_cache.sync_library, _media_client)
             except Exception as e:
                 logger.error("Auto-resync failed: %s", e)
 
@@ -167,12 +178,22 @@ def _build_config_response(config, plex_client) -> ConfigResponse:
     gen_costs = get_model_cost(generation_model, config.llm)
     analysis_costs = get_model_cost(analysis_model, config.llm)
 
+    # Determine music_library based on active media server
+    if config.media_server == "jellyfin":
+        active_music_library = config.jellyfin.music_library
+    else:
+        active_music_library = config.plex.music_library
+
     return ConfigResponse(
         version=get_version(),
+        media_server=config.media_server,
         plex_url=config.plex.url,
         plex_connected=plex_client.is_connected() if plex_client else False,
         plex_token_set=bool(config.plex.token),
-        music_library=config.plex.music_library,
+        music_library=active_music_library,
+        jellyfin_url=config.jellyfin.url,
+        jellyfin_token_set=bool(config.jellyfin.token),
+        jellyfin_music_library=config.jellyfin.music_library,
         llm_provider=config.llm.provider,
         llm_configured=_is_llm_configured(config),
         llm_api_key_set=bool(config.llm.api_key),
@@ -203,12 +224,13 @@ def _build_config_response(config, plex_client) -> ConfigResponse:
 async def health_check() -> HealthResponse:
     """Check application health status."""
     config = get_config()
-    plex_client = get_plex_client()
+    media_client = get_current_media_client()
 
     return HealthResponse(
         status="healthy",
-        plex_connected=plex_client.is_connected() if plex_client else False,
+        plex_connected=media_client.is_connected() if media_client else False,
         llm_configured=_is_llm_configured(config),
+        media_server=config.media_server,
     )
 
 
@@ -222,6 +244,7 @@ async def setup_status() -> SetupStatusResponse:
     """Get onboarding checklist state for the setup wizard."""
     config = get_config()
     plex_client = get_plex_client()
+    jellyfin_client = get_jellyfin_client()
 
     # Check data dir writable by actually creating+deleting a temp file
     # (more reliable than os.access for Docker bind mounts)
@@ -239,7 +262,18 @@ async def setup_status() -> SetupStatusResponse:
     # Plex status
     plex_connected = plex_client.is_connected() if plex_client else False
     plex_error = plex_client.get_error() if plex_client and not plex_connected else None
-    music_libraries = plex_client.get_music_libraries() if plex_client and plex_connected else []
+
+    # Jellyfin status
+    jellyfin_connected = jellyfin_client.is_connected() if jellyfin_client else False
+    jellyfin_error = jellyfin_client.get_error() if jellyfin_client and not jellyfin_connected else None
+
+    # Music libraries from active server
+    if config.media_server == "jellyfin" and jellyfin_connected and jellyfin_client:
+        music_libraries = jellyfin_client.get_music_libraries()
+    elif plex_connected and plex_client:
+        music_libraries = plex_client.get_music_libraries()
+    else:
+        music_libraries = []
 
     # LLM status
     llm_configured = _is_llm_configured(config)
@@ -268,9 +302,13 @@ async def setup_status() -> SetupStatusResponse:
         process_uid=getattr(os, "getuid", lambda: 0)(),
         process_gid=getattr(os, "getgid", lambda: 0)(),
         data_dir=str(data_dir),
+        media_server=config.media_server,
         plex_connected=plex_connected,
         plex_error=plex_error,
         plex_from_env=bool(os.environ.get("PLEX_URL")),
+        jellyfin_connected=jellyfin_connected,
+        jellyfin_error=jellyfin_error,
+        jellyfin_from_env=bool(os.environ.get("JELLYFIN_URL")),
         music_libraries=music_libraries,
         llm_configured=llm_configured,
         llm_provider=config.llm.provider,
@@ -320,6 +358,46 @@ async def setup_validate_plex(request: ValidatePlexRequest) -> ValidatePlexRespo
         success=True,
         server_name=server_name,
         music_libraries=music_libraries,
+    )
+
+
+@app.post("/api/setup/validate-jellyfin", response_model=ValidateJellyfinResponse)
+async def setup_validate_jellyfin(request: ValidateJellyfinRequest) -> ValidateJellyfinResponse:
+    """Validate Jellyfin credentials and save on success."""
+    try:
+        temp_client = await asyncio.to_thread(
+            JellyfinClient, request.jellyfin_url, request.jellyfin_token, request.music_library
+        )
+    except Exception as e:
+        return ValidateJellyfinResponse(success=False, error=str(e))
+
+    if not temp_client.is_connected():
+        return ValidateJellyfinResponse(
+            success=False,
+            error=temp_client.get_error() or "Connection failed",
+        )
+
+    music_libraries = temp_client.get_music_libraries()
+    server_name = temp_client.get_server_name()
+    user_id = temp_client._user_id
+
+    try:
+        update_config_values({
+            "media_server": "jellyfin",
+            "jellyfin_url": request.jellyfin_url,
+            "jellyfin_token": request.jellyfin_token,
+            "jellyfin_music_library": request.music_library,
+        })
+    except ConfigSaveError as e:
+        return ValidateJellyfinResponse(success=False, error=str(e))
+
+    init_jellyfin_client(request.jellyfin_url, request.jellyfin_token, request.music_library)
+
+    return ValidateJellyfinResponse(
+        success=True,
+        server_name=server_name,
+        music_libraries=music_libraries,
+        user_id=user_id,
     )
 
 
@@ -455,6 +533,14 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
             config.plex.music_library,
         )
 
+    if any(k in updates for k in ["jellyfin_url", "jellyfin_token", "jellyfin_music_library"]):
+        if config.jellyfin.url and config.jellyfin.token:
+            init_jellyfin_client(
+                config.jellyfin.url,
+                config.jellyfin.token,
+                config.jellyfin.music_library,
+            )
+
     if any(k in updates for k in ["llm_provider", "llm_api_key", "model_analysis", "model_generation", "ollama_url", "custom_url"]):
         init_llm_client(config.llm)
 
@@ -508,7 +594,7 @@ async def ollama_model_info(
 @app.get("/api/library/status", response_model=LibraryCacheStatusResponse)
 async def get_library_status() -> LibraryCacheStatusResponse:
     """Get library cache status for UI polling."""
-    plex_client = get_plex_client()
+    media_client = get_current_media_client()
 
     # Get sync state from cache module
     state = library_cache.get_sync_state()
@@ -528,20 +614,20 @@ async def get_library_status() -> LibraryCacheStatusResponse:
         is_syncing=state["is_syncing"],
         sync_progress=sync_progress,
         error=state["error"],
-        plex_connected=plex_client.is_connected() if plex_client else False,
+        plex_connected=media_client.is_connected() if media_client else False,
         needs_resync=library_cache.needs_resync(),
     )
 
 
 @app.post("/api/library/sync", response_model=SyncTriggerResponse)
 async def trigger_library_sync() -> SyncTriggerResponse:
-    """Trigger library sync from Plex.
+    """Trigger library sync from the configured media server.
 
     Always starts sync in background so progress can be polled.
     """
-    plex_client = get_plex_client()
-    if not plex_client or not plex_client.is_connected():
-        raise HTTPException(status_code=503, detail="Plex not connected")
+    media_client = get_current_media_client()
+    if not media_client or not media_client.is_connected():
+        raise HTTPException(status_code=503, detail="Media server not connected")
 
     # Check if already syncing
     progress = library_cache.get_sync_progress()
@@ -550,7 +636,7 @@ async def trigger_library_sync() -> SyncTriggerResponse:
 
     # Always run sync in background so progress can be polled
     asyncio.create_task(
-        asyncio.to_thread(library_cache.sync_library, plex_client)
+        asyncio.to_thread(library_cache.sync_library, media_client)
     )
     return SyncTriggerResponse(started=True, blocking=False)
 
@@ -563,11 +649,11 @@ async def trigger_library_sync() -> SyncTriggerResponse:
 @app.get("/api/library/stats", response_model=LibraryStatsResponse)
 async def get_library_stats() -> LibraryStatsResponse:
     """Get library statistics."""
-    plex_client = get_plex_client()
-    if not plex_client or not plex_client.is_connected():
-        raise HTTPException(status_code=503, detail="Plex not connected")
+    media_client = get_current_media_client()
+    if not media_client or not media_client.is_connected():
+        raise HTTPException(status_code=503, detail="Media server not connected")
 
-    stats = await asyncio.to_thread(plex_client.get_library_stats)
+    stats = await asyncio.to_thread(media_client.get_library_stats)
     return LibraryStatsResponse(
         total_tracks=stats.get("total_tracks", 0),
         genres=[GenreCount(**g) for g in stats.get("genres", [])],
@@ -589,13 +675,13 @@ async def get_library_stats_cached() -> LibraryStatsResponse:
 @app.get("/api/library/search", response_model=list[Track])
 async def search_library(q: str = Query(..., description="Search query")) -> list[Track]:
     """Search for tracks in the library."""
-    plex_client = get_plex_client()
-    if not plex_client or not plex_client.is_connected():
-        raise HTTPException(status_code=503, detail="Plex not connected")
+    media_client = get_current_media_client()
+    if not media_client or not media_client.is_connected():
+        raise HTTPException(status_code=503, detail="Media server not connected")
 
     # Normalize smart/curly quotes to straight quotes (iOS auto-correction)
     normalized = q.replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
-    return await asyncio.to_thread(plex_client.search_tracks, normalized)
+    return await asyncio.to_thread(media_client.search_tracks, normalized)
 
 
 # =============================================================================
@@ -606,11 +692,11 @@ async def search_library(q: str = Query(..., description="Search query")) -> lis
 @app.post("/api/analyze/prompt", response_model=AnalyzePromptResponse)
 async def analyze_prompt(request: AnalyzePromptRequest) -> AnalyzePromptResponse:
     """Analyze a natural language prompt to suggest filters."""
-    plex_client = get_plex_client()
+    media_client = get_current_media_client()
     llm_client = get_llm_client()
 
-    if not plex_client or not plex_client.is_connected():
-        raise HTTPException(status_code=503, detail="Plex not connected")
+    if not media_client or not media_client.is_connected():
+        raise HTTPException(status_code=503, detail="Media server not connected")
     if not llm_client:
         raise HTTPException(status_code=503, detail="LLM not configured")
 
@@ -625,16 +711,16 @@ async def analyze_prompt(request: AnalyzePromptRequest) -> AnalyzePromptResponse
 @app.post("/api/analyze/track", response_model=AnalyzeTrackResponse)
 async def analyze_track(request: AnalyzeTrackRequest) -> AnalyzeTrackResponse:
     """Analyze a seed track for dimensions."""
-    plex_client = get_plex_client()
+    media_client = get_current_media_client()
     llm_client = get_llm_client()
 
-    if not plex_client or not plex_client.is_connected():
-        raise HTTPException(status_code=503, detail="Plex not connected")
+    if not media_client or not media_client.is_connected():
+        raise HTTPException(status_code=503, detail="Media server not connected")
     if not llm_client:
         raise HTTPException(status_code=503, detail="LLM not configured")
 
     # Get the track
-    track = await asyncio.to_thread(plex_client.get_track_by_key, request.rating_key)
+    track = await asyncio.to_thread(media_client.get_track_by_key, request.rating_key)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
 
@@ -672,13 +758,14 @@ async def preview_filters(request: FilterPreviewRequest) -> FilterPreviewRespons
             exclude_live=exclude_live,
         )
 
-    # Fall back to Plex if cache is empty
+    # Fall back to media server if cache is empty
     if matching_tracks < 0:
-        if not plex_client or not plex_client.is_connected():
-            raise HTTPException(status_code=503, detail="Plex not connected")
+        media_client = get_current_media_client()
+        if not media_client or not media_client.is_connected():
+            raise HTTPException(status_code=503, detail="Media server not connected")
 
         matching_tracks = await asyncio.to_thread(
-            plex_client.count_tracks_by_filters,
+            media_client.count_tracks_by_filters,
             genres=genres,
             decades=decades,
             exclude_live=exclude_live,
@@ -737,11 +824,11 @@ async def preview_filters(request: FilterPreviewRequest) -> FilterPreviewRespons
 @app.post("/api/generate/stream")
 async def generate_playlist_sse(request: GenerateRequest) -> StreamingResponse:
     """Generate a playlist with streaming progress updates."""
-    plex_client = get_plex_client()
+    media_client = get_current_media_client()
     llm_client = get_llm_client()
 
-    if not plex_client or not plex_client.is_connected():
-        raise HTTPException(status_code=503, detail="Plex not connected")
+    if not media_client or not media_client.is_connected():
+        raise HTTPException(status_code=503, detail="Media server not connected")
     if not llm_client:
         raise HTTPException(status_code=503, detail="LLM not configured")
 
@@ -750,7 +837,7 @@ async def generate_playlist_sse(request: GenerateRequest) -> StreamingResponse:
     selected_dimensions = None
     if request.seed_track:
         seed_track = await asyncio.to_thread(
-            plex_client.get_track_by_key, request.seed_track.rating_key
+            media_client.get_track_by_key, request.seed_track.rating_key
         )
         if not seed_track:
             raise HTTPException(status_code=404, detail="Seed track not found")
@@ -789,13 +876,13 @@ async def generate_playlist_sse(request: GenerateRequest) -> StreamingResponse:
 
 @app.post("/api/playlist", response_model=SavePlaylistResponse)
 async def save_playlist(request: SavePlaylistRequest) -> SavePlaylistResponse:
-    """Save a playlist to Plex."""
-    plex_client = get_plex_client()
-    if not plex_client or not plex_client.is_connected():
-        raise HTTPException(status_code=503, detail="Plex not connected")
+    """Save a playlist to the configured media server."""
+    media_client = get_current_media_client()
+    if not media_client or not media_client.is_connected():
+        raise HTTPException(status_code=503, detail="Media server not connected")
 
     result = await asyncio.to_thread(
-        plex_client.create_playlist,
+        media_client.create_playlist,
         request.name,
         request.rating_keys,
         request.description,
@@ -850,15 +937,25 @@ async def get_plex_playlists() -> list[PlexPlaylistInfo]:
     return await asyncio.to_thread(plex_client.get_playlists)
 
 
+@app.get("/api/jellyfin/playlists", response_model=list[PlexPlaylistInfo])
+async def get_jellyfin_playlists() -> list[PlexPlaylistInfo]:
+    """List audio playlists on the Jellyfin server."""
+    jellyfin_client = get_jellyfin_client()
+    if not jellyfin_client or not jellyfin_client.is_connected():
+        raise HTTPException(status_code=503, detail="Jellyfin not connected")
+
+    return await asyncio.to_thread(jellyfin_client.get_playlists)
+
+
 @app.post("/api/playlist/update", response_model=UpdatePlaylistResponse)
 async def update_playlist(request: UpdatePlaylistRequest) -> UpdatePlaylistResponse:
-    """Update an existing Plex playlist by replacing or appending tracks."""
-    plex_client = get_plex_client()
-    if not plex_client or not plex_client.is_connected():
-        raise HTTPException(status_code=503, detail="Plex not connected")
+    """Update an existing playlist by replacing or appending tracks."""
+    media_client = get_current_media_client()
+    if not media_client or not media_client.is_connected():
+        raise HTTPException(status_code=503, detail="Media server not connected")
 
     result = await asyncio.to_thread(
-        plex_client.update_playlist,
+        media_client.update_playlist,
         request.playlist_id,
         request.rating_keys,
         request.mode,
@@ -1564,13 +1661,37 @@ async def delete_result(result_id: str):
 
 @app.get("/api/art/{rating_key}")
 async def get_album_art(rating_key: str):
-    """Proxy album art from Plex to avoid exposing token to browser."""
+    """Proxy album art from Plex or Jellyfin to avoid exposing credentials to browser."""
+    config = get_config()
+
+    if config.media_server == "jellyfin":
+        jellyfin_client = get_jellyfin_client()
+        if not jellyfin_client or not jellyfin_client.is_connected():
+            raise HTTPException(status_code=503, detail="Jellyfin not connected")
+
+        art_url = jellyfin_client.get_art_url(rating_key)
+        if art_url:
+            try:
+                proxy_client = await _get_art_proxy_client()
+                response = await proxy_client.get(
+                    art_url,
+                    headers={"Authorization": f'MediaBrowser Token="{config.jellyfin.token}"'},
+                )
+                if response.status_code == 200:
+                    return Response(
+                        content=response.content,
+                        media_type=response.headers.get("content-type", "image/jpeg"),
+                    )
+            except Exception:
+                logger.debug("Jellyfin art proxy failed for item_id=%s", rating_key, exc_info=True)
+
+        raise HTTPException(status_code=404, detail="Art not available")
+
+    # Plex path (default)
     if not rating_key.isdigit():
         raise HTTPException(status_code=400, detail="Invalid rating key format")
 
     plex_client = get_plex_client()
-    config = get_config()
-
     if not plex_client or not plex_client.is_connected():
         raise HTTPException(status_code=503, detail="Plex not connected")
 
