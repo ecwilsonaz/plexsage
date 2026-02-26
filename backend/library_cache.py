@@ -457,53 +457,78 @@ def sync_library(
         conn.execute("UPDATE sync_state SET track_count = 0 WHERE id = 1")
         conn.commit()
 
-        # Phase 1: Fetch albums for genre/year mapping
-        logger.info("Fetching album metadata from Plex...")
-        album_metadata = plex_client.get_all_albums_metadata()
-        logger.info("Got metadata for %d albums", len(album_metadata))
+        # Detect client type: Plex (has get_all_raw_tracks) vs generic (Track models)
+        use_raw = hasattr(plex_client, "get_all_raw_tracks")
 
-        # Phase 2: Fetch all tracks from Plex
-        with _sync_lock:
-            _sync_state["phase"] = "fetching"
-        logger.info("Fetching all tracks from Plex (this may take 30-60s)...")
-        all_tracks = plex_client.get_all_raw_tracks()
+        if use_raw:
+            # Phase 1 (Plex): Fetch albums for genre/year mapping
+            logger.info("Fetching album metadata from media server...")
+            album_metadata = plex_client.get_all_albums_metadata()
+            logger.info("Got metadata for %d albums", len(album_metadata))
+
+            # Phase 2 (Plex): Fetch all raw tracks
+            with _sync_lock:
+                _sync_state["phase"] = "fetching"
+            logger.info("Fetching all tracks from media server (this may take 30-60s)...")
+            all_tracks = plex_client.get_all_raw_tracks()
+        else:
+            # Phase 1+2 (Jellyfin/generic): Fetch Track models directly
+            with _sync_lock:
+                _sync_state["phase"] = "fetching"
+            logger.info("Fetching all tracks from media server (this may take 30-60s)...")
+            all_tracks = plex_client.get_all_tracks()
+            album_metadata = {}  # Not needed; Track models already have genres/year
+
         total = len(all_tracks)
-        logger.info("Got %d tracks from Plex", total)
+        logger.info("Got %d tracks from media server", total)
 
         with _sync_lock:
             _sync_state["total"] = total
             _sync_state["phase"] = "processing"
 
-        # Phase 3: Process tracks in batches with album metadata lookup
+        # Phase 3: Process tracks in batches
         synced_count = 0
         batch_data = []
 
         for i, track in enumerate(all_tracks):
-            # Extract track data
-            title = track.title
-            album = getattr(track, "parentTitle", "") or ""
-            artist = getattr(track, "grandparentTitle", "") or "Unknown Artist"
-
-            # Look up genres and year from album metadata using parentRatingKey
-            parent_key = str(getattr(track, "parentRatingKey", ""))
-            album_data = album_metadata.get(parent_key, {})
-            genres = album_data.get("genres", [])
-            year = album_data.get("year")
-
-            # Extract play history data
-            view_count = getattr(track, "viewCount", 0) or 0
-            last_viewed_at_raw = getattr(track, "lastViewedAt", None)
-            last_viewed_at = last_viewed_at_raw.isoformat() if last_viewed_at_raw else None
+            if use_raw:
+                # Raw Plex track objects
+                title = track.title
+                album = getattr(track, "parentTitle", "") or ""
+                artist = getattr(track, "grandparentTitle", "") or "Unknown Artist"
+                parent_key = str(getattr(track, "parentRatingKey", ""))
+                album_data = album_metadata.get(parent_key, {})
+                genres = album_data.get("genres", [])
+                year = album_data.get("year")
+                view_count = getattr(track, "viewCount", 0) or 0
+                last_viewed_at_raw = getattr(track, "lastViewedAt", None)
+                last_viewed_at = last_viewed_at_raw.isoformat() if last_viewed_at_raw else None
+                rating_key = str(track.ratingKey)
+                duration_ms = track.duration or 0
+                user_rating = getattr(track, "userRating", None)
+            else:
+                # Track model objects (Jellyfin)
+                title = track.title
+                album = track.album
+                artist = track.artist or "Unknown Artist"
+                parent_key = ""
+                genres = track.genres
+                year = track.year
+                view_count = 0
+                last_viewed_at = None
+                rating_key = track.rating_key
+                duration_ms = track.duration_ms
+                user_rating = track.user_rating
 
             batch_data.append((
-                str(track.ratingKey),
+                rating_key,
                 title,
                 artist,
                 album,
-                track.duration or 0,
+                duration_ms,
                 year,
                 json.dumps(genres),  # Store genres as JSON array
-                getattr(track, "userRating", None),
+                user_rating,
                 _is_live_version(title, album),
                 parent_key,
                 view_count,
