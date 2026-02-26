@@ -7,7 +7,7 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-from backend.models import AppConfig, DefaultsConfig, LLMConfig, PlexConfig
+from backend.models import AppConfig, DefaultsConfig, JellyfinConfig, LLMConfig, PlexConfig
 
 # Load .env file (if it exists) - env vars take priority
 load_dotenv()
@@ -148,6 +148,7 @@ def load_config(config_path: Path | None = None) -> AppConfig:
 
     # Extract nested config sections
     plex_yaml = yaml_config.get("plex", {})
+    jellyfin_yaml = yaml_config.get("jellyfin", {})
     llm_yaml = yaml_config.get("llm", {})
     defaults_yaml = yaml_config.get("defaults", {})
 
@@ -196,6 +197,27 @@ def load_config(config_path: Path | None = None) -> AppConfig:
             "PLEX_MUSIC_LIBRARY", plex_yaml.get("music_library"), "Music"
         ),
     )
+
+    jellyfin_config = JellyfinConfig(
+        url=get_env_or_yaml("JELLYFIN_URL", jellyfin_yaml.get("url"), ""),
+        token=get_env_or_yaml("JELLYFIN_TOKEN", jellyfin_yaml.get("token"), ""),
+        music_library=get_env_or_yaml(
+            "JELLYFIN_MUSIC_LIBRARY", jellyfin_yaml.get("music_library"), "Music"
+        ),
+    )
+
+    # Determine media server: env var > yaml > auto-detect > default "plex"
+    media_server_yaml = yaml_config.get("media_server")
+    media_server_env = os.environ.get("MEDIA_SERVER")
+    if media_server_env:
+        media_server = media_server_env
+    elif media_server_yaml:
+        media_server = media_server_yaml
+    elif jellyfin_config.url and not plex_config.url:
+        # Auto-detect: Jellyfin URL set but not Plex
+        media_server = "jellyfin"
+    else:
+        media_server = "plex"
 
     # Get local provider settings
     ollama_url = get_env_or_yaml(
@@ -260,7 +282,9 @@ def load_config(config_path: Path | None = None) -> AppConfig:
     )
 
     return AppConfig(
+        media_server=media_server,
         plex=plex_config,
+        jellyfin=jellyfin_config,
         llm=llm_config,
         defaults=defaults_config,
     )
@@ -297,7 +321,12 @@ def update_config_values(updates: dict[str, Any]) -> AppConfig:
 
     # Create updated config by merging updates
     plex_updates = {}
+    jellyfin_updates = {}
     llm_updates = {}
+    top_level_updates = {}
+
+    if "media_server" in updates and updates["media_server"]:
+        top_level_updates["media_server"] = updates["media_server"]
 
     if "plex_url" in updates and updates["plex_url"]:
         plex_updates["url"] = updates["plex_url"]
@@ -305,6 +334,13 @@ def update_config_values(updates: dict[str, Any]) -> AppConfig:
         plex_updates["token"] = updates["plex_token"]
     if "music_library" in updates and updates["music_library"]:
         plex_updates["music_library"] = updates["music_library"]
+
+    if "jellyfin_url" in updates and updates["jellyfin_url"]:
+        jellyfin_updates["url"] = updates["jellyfin_url"]
+    if "jellyfin_token" in updates and updates["jellyfin_token"]:
+        jellyfin_updates["token"] = updates["jellyfin_token"]
+    if "jellyfin_music_library" in updates and updates["jellyfin_music_library"]:
+        jellyfin_updates["music_library"] = updates["jellyfin_music_library"]
 
     if "llm_provider" in updates and updates["llm_provider"]:
         new_provider = updates["llm_provider"]
@@ -347,18 +383,26 @@ def update_config_values(updates: dict[str, Any]) -> AppConfig:
 
     # Create new config with updates
     new_plex = _config.plex.model_copy(update=plex_updates)
+    new_jellyfin = _config.jellyfin.model_copy(update=jellyfin_updates)
     new_llm = _config.llm.model_copy(update=llm_updates)
+    new_media_server = top_level_updates.get("media_server", _config.media_server)
 
     _config = AppConfig(
+        media_server=new_media_server,
         plex=new_plex,
+        jellyfin=new_jellyfin,
         llm=new_llm,
         defaults=_config.defaults,
     )
 
     # Persist to user config file
     user_updates: dict[str, Any] = {}
+    if top_level_updates:
+        user_updates.update(top_level_updates)
     if plex_updates:
         user_updates["plex"] = plex_updates
+    if jellyfin_updates:
+        user_updates["jellyfin"] = jellyfin_updates
     if llm_updates:
         user_updates["llm"] = llm_updates
 
@@ -366,3 +410,19 @@ def update_config_values(updates: dict[str, Any]) -> AppConfig:
         save_user_config(user_updates)
 
     return _config
+
+
+def get_current_media_client():
+    """Get the media client for the currently configured media server.
+
+    Returns:
+        PlexClient or JellyfinClient based on config.media_server.
+        Returns None if the relevant server is not configured.
+    """
+    config = get_config()
+    if config.media_server == "jellyfin":
+        from backend.jellyfin_client import JellyfinClient, get_jellyfin_client
+        return get_jellyfin_client()
+    else:
+        from backend.plex_client import get_plex_client
+        return get_plex_client()
