@@ -11,10 +11,19 @@ services:
     ports:
       - "5765:5765"
     environment:
-      # Required: Plex server settings
-      - PLEX_URL=${PLEX_URL}
-      - PLEX_TOKEN=${PLEX_TOKEN}
+      # Media server selection: "plex" or "jellyfin" (auto-detected if only one URL is set)
+      #- MEDIA_SERVER=plex
+
+      # Plex server settings (use if MEDIA_SERVER=plex)
+      - PLEX_URL=${PLEX_URL:-}
+      - PLEX_TOKEN=${PLEX_TOKEN:-}
       - PLEX_MUSIC_LIBRARY=${PLEX_MUSIC_LIBRARY:-Music}
+
+      # Jellyfin server settings (use if MEDIA_SERVER=jellyfin)
+      # API key: create in Jellyfin Dashboard > API Keys
+      - JELLYFIN_URL=${JELLYFIN_URL:-}
+      - JELLYFIN_TOKEN=${JELLYFIN_TOKEN:-}
+      - JELLYFIN_MUSIC_LIBRARY=${JELLYFIN_MUSIC_LIBRARY:-Music}
 
       # Performance tuning
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
