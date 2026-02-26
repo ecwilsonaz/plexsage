@@ -18,7 +18,7 @@ def album_key(artist: str, album: str, lower: bool = True) -> str:
 
 
 class Track(BaseModel):
-    """A music track from the Plex library."""
+    """A music track from the media library."""
 
     rating_key: str
     title: str
@@ -28,6 +28,7 @@ class Track(BaseModel):
     year: int | None = None
     genres: list[str] = []
     art_url: str | None = None
+    user_rating: int | None = None  # 0-10 scale (Plex/Jellyfin both use this)
 
     @property
     def duration_formatted(self) -> str:
@@ -93,6 +94,14 @@ class PlexConfig(BaseModel):
     music_library: str = "Music"
 
 
+class JellyfinConfig(BaseModel):
+    """Jellyfin server connection settings."""
+
+    url: str = ""
+    token: str = ""  # API key from Jellyfin admin > API Keys
+    music_library: str = "Music"
+
+
 class LLMConfig(BaseModel):
     """LLM provider settings."""
 
@@ -126,7 +135,9 @@ class DefaultsConfig(BaseModel):
 class AppConfig(BaseModel):
     """Root configuration object."""
 
+    media_server: Literal["plex", "jellyfin"] = "plex"
     plex: PlexConfig
+    jellyfin: JellyfinConfig = JellyfinConfig()
     llm: LLMConfig
     defaults: DefaultsConfig = DefaultsConfig()
 
@@ -253,12 +264,12 @@ class GenerateResponse(BaseModel):
 
 
 def _validate_rating_keys(v: list[str]) -> list[str]:
-    """Validate a list of Plex rating keys (must be non-empty, all numeric)."""
+    """Validate a list of media server item IDs (must be non-empty).
+
+    Accepts Plex numeric IDs and Jellyfin UUID-style hex IDs.
+    """
     if not v:
         raise ValueError("At least one track is required")
-    for key in v:
-        if not key.isdigit():
-            raise ValueError(f"Invalid rating key: {key}")
     return v
 
 
@@ -316,6 +327,10 @@ class PlexPlaylistInfo(BaseModel):
     track_count: int
 
 
+# Alias used for Jellyfin and any media-server-agnostic contexts
+MediaPlaylistInfo = PlexPlaylistInfo
+
+
 class PlexClientInfo(BaseModel):
     """Online Plex client info."""
 
@@ -343,8 +358,8 @@ class UpdatePlaylistRequest(BaseModel):
     @field_validator("playlist_id")
     @classmethod
     def validate_playlist_id(cls, v: str) -> str:
-        if v != "__scratch__" and not v.isdigit():
-            raise ValueError("playlist_id must be '__scratch__' or a numeric rating key")
+        if not v:
+            raise ValueError("playlist_id cannot be empty")
         return v
 
     @field_validator("rating_keys")
@@ -400,10 +415,15 @@ class ConfigResponse(BaseModel):
     """Config without secrets for display."""
 
     version: str
+    media_server: str = "plex"
     plex_url: str
     plex_connected: bool
     plex_token_set: bool  # True if token is configured (without revealing it)
     music_library: str | None
+    # Jellyfin fields
+    jellyfin_url: str = ""
+    jellyfin_token_set: bool = False
+    jellyfin_music_library: str = "Music"
     llm_provider: str
     llm_configured: bool
     llm_api_key_set: bool  # True if API key is configured (without revealing it)
@@ -428,9 +448,14 @@ class ConfigResponse(BaseModel):
 class UpdateConfigRequest(BaseModel):
     """Partial config update."""
 
+    media_server: str | None = None
     plex_url: str | None = None
     plex_token: str | None = None
     music_library: str | None = None
+    # Jellyfin fields
+    jellyfin_url: str | None = None
+    jellyfin_token: str | None = None
+    jellyfin_music_library: str | None = None
     llm_provider: str | None = None
     llm_api_key: str | None = None
     model_analysis: str | None = None
@@ -448,6 +473,7 @@ class HealthResponse(BaseModel):
     status: str
     plex_connected: bool
     llm_configured: bool
+    media_server: str = "plex"
 
 
 class ErrorResponse(BaseModel):
@@ -804,9 +830,13 @@ class SetupStatusResponse(BaseModel):
     process_uid: int = 0
     process_gid: int = 0
     data_dir: str = ""
+    media_server: str = "plex"
     plex_connected: bool
     plex_error: str | None = None
     plex_from_env: bool = False
+    jellyfin_connected: bool = False
+    jellyfin_error: str | None = None
+    jellyfin_from_env: bool = False
     music_libraries: list[str] = []
     llm_configured: bool
     llm_provider: str = ""
@@ -833,6 +863,24 @@ class ValidatePlexResponse(BaseModel):
     error: str | None = None
     server_name: str | None = None
     music_libraries: list[str] = []
+
+
+class ValidateJellyfinRequest(BaseModel):
+    """Request to validate Jellyfin credentials during setup."""
+
+    jellyfin_url: str
+    jellyfin_token: str
+    music_library: str = "Music"
+
+
+class ValidateJellyfinResponse(BaseModel):
+    """Response from Jellyfin validation."""
+
+    success: bool
+    error: str | None = None
+    server_name: str | None = None
+    music_libraries: list[str] = []
+    user_id: str | None = None
 
 
 class ValidateAIRequest(BaseModel):
