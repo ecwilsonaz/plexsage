@@ -60,29 +60,62 @@
                         </div>
                     </div>
 
-                    <!-- Step 1: Plex -->
+                    <!-- Step 1: Media Server -->
                     <div class="setup-step" id="setup-step-plex">
                         <div class="setup-step-header">
                             <span class="setup-step-number">1</span>
                             <div class="setup-step-title">
-                                <h3>Connect to Plex</h3>
+                                <h3>Connect to Media Server</h3>
                                 <span class="setup-step-status" id="setup-plex-status"></span>
                             </div>
                         </div>
                         <div class="setup-step-body" id="setup-plex-body">
                             <div class="setup-step-form" id="setup-plex-form">
+                                <!-- Media server selector -->
                                 <div class="form-group">
-                                    <label for="setup-plex-url">Plex Server URL</label>
-                                    <input type="text" id="setup-plex-url" placeholder="http://your-plex-server:32400">
+                                    <label>Media Server</label>
+                                    <div class="media-server-selector">
+                                        <label class="media-server-option">
+                                            <input type="radio" name="setup-media-server" value="plex" checked>
+                                            <span>Plex</span>
+                                        </label>
+                                        <label class="media-server-option">
+                                            <input type="radio" name="setup-media-server" value="jellyfin">
+                                            <span>Jellyfin</span>
+                                        </label>
+                                    </div>
                                 </div>
-                                <div class="form-group">
-                                    <label for="setup-plex-token">Plex Token</label>
-                                    <input type="password" id="setup-plex-token" placeholder="Your Plex token">
-                                    <p class="setup-field-hint">Find your token: <a href="https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/" target="_blank" rel="noopener">Plex support article</a></p>
+                                <!-- Plex fields -->
+                                <div id="setup-plex-fields">
+                                    <div class="form-group">
+                                        <label for="setup-plex-url">Plex Server URL</label>
+                                        <input type="text" id="setup-plex-url" placeholder="http://your-plex-server:32400">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="setup-plex-token">Plex Token</label>
+                                        <input type="password" id="setup-plex-token" placeholder="Your Plex token">
+                                        <p class="setup-field-hint">Find your token: <a href="https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/" target="_blank" rel="noopener">Plex support article</a></p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="setup-plex-library">Music Library</label>
+                                        <input type="text" id="setup-plex-library" value="Music" placeholder="Music library name">
+                                    </div>
                                 </div>
-                                <div class="form-group">
-                                    <label for="setup-plex-library">Music Library</label>
-                                    <input type="text" id="setup-plex-library" value="Music" placeholder="Music library name">
+                                <!-- Jellyfin fields -->
+                                <div id="setup-jellyfin-fields" class="hidden">
+                                    <div class="form-group">
+                                        <label for="setup-jellyfin-url">Jellyfin Server URL</label>
+                                        <input type="text" id="setup-jellyfin-url" placeholder="http://your-jellyfin-server:8096">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="setup-jellyfin-token">API Key</label>
+                                        <input type="password" id="setup-jellyfin-token" placeholder="Your Jellyfin API key">
+                                        <p class="setup-field-hint">Create an API key in Jellyfin: Dashboard &rarr; Advanced &rarr; API Keys</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="setup-jellyfin-library">Music Library</label>
+                                        <input type="text" id="setup-jellyfin-library" value="Music" placeholder="Music library name">
+                                    </div>
                                 </div>
                                 <div id="setup-plex-error" class="setup-inline-error hidden" role="alert"></div>
                                 <button id="setup-plex-btn" class="btn btn-primary">Connect</button>
@@ -367,7 +400,7 @@
                             </label>
                         </div>
 
-                        <div class="filter-section">
+                        <div class="filter-section" id="filter-rating-section">
                             <h3>Minimum Rating</h3>
                             <div class="rating-selector" role="group" aria-label="Minimum track rating">
                                 <button class="rating-btn active" data-rating="0" aria-pressed="true">Any</button>
@@ -431,7 +464,7 @@
                                 <div class="results-header-actions">
                                     <div class="split-button-group">
                                         <button id="save-playlist-btn" class="btn btn-primary split-button-main">
-                                            <span class="btn-label-long">Save to Plex</span><span class="btn-label-short">Save</span>
+                                            <span class="btn-label-long" id="save-playlist-btn-label">Save to Library</span><span class="btn-label-short">Save</span>
                                         </button>
                                         <button id="save-mode-dropdown-btn" class="btn btn-primary split-button-arrow" aria-label="Save mode options" aria-expanded="false">
                                             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 5L6 8L9 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -640,22 +673,52 @@
                 <h2>Settings</h2>
 
                 <section class="settings-section">
-                    <h3>Plex Connection</h3>
-                    <div class="status-indicator" id="plex-status">
-                        <span class="status-dot"></span>
-                        <span class="status-text">Not connected</span>
-                    </div>
+                    <h3>Media Server</h3>
                     <div class="form-group">
-                        <label for="plex-url">Plex Server URL</label>
-                        <input type="text" id="plex-url" placeholder="http://your-plex-server:32400">
+                        <label for="settings-media-server">Server Type</label>
+                        <select id="settings-media-server">
+                            <option value="plex">Plex</option>
+                            <option value="jellyfin">Jellyfin</option>
+                        </select>
                     </div>
-                    <div class="form-group">
-                        <label for="plex-token">Plex Token</label>
-                        <input type="password" id="plex-token" placeholder="Your Plex token">
+                    <!-- Plex settings -->
+                    <div id="settings-plex-fields">
+                        <div class="status-indicator" id="plex-status">
+                            <span class="status-dot"></span>
+                            <span class="status-text">Not connected</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="plex-url">Plex Server URL</label>
+                            <input type="text" id="plex-url" placeholder="http://your-plex-server:32400">
+                        </div>
+                        <div class="form-group">
+                            <label for="plex-token">Plex Token</label>
+                            <input type="password" id="plex-token" placeholder="Your Plex token">
+                        </div>
+                        <div class="form-group">
+                            <label for="music-library">Music Library</label>
+                            <input type="text" id="music-library" value="Music" placeholder="Music library name">
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label for="music-library">Music Library</label>
-                        <input type="text" id="music-library" value="Music" placeholder="Music library name">
+                    <!-- Jellyfin settings -->
+                    <div id="settings-jellyfin-fields" class="hidden">
+                        <div class="status-indicator" id="jellyfin-status">
+                            <span class="status-dot"></span>
+                            <span class="status-text">Not connected</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="jellyfin-url">Jellyfin Server URL</label>
+                            <input type="text" id="jellyfin-url" placeholder="http://your-jellyfin-server:8096">
+                        </div>
+                        <div class="form-group">
+                            <label for="jellyfin-token">API Key</label>
+                            <input type="password" id="jellyfin-token" placeholder="Your Jellyfin API key">
+                            <p class="setup-field-hint">Create an API key in Jellyfin: Dashboard &rarr; Advanced &rarr; API Keys</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="jellyfin-music-library">Music Library</label>
+                            <input type="text" id="jellyfin-music-library" value="Music" placeholder="Music library name">
+                        </div>
                     </div>
                 </section>
 
